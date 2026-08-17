@@ -1,0 +1,36 @@
+# =========================
+# Ignorados del SO e IDEs
+# =========================
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# =========================
+# reasoning-engine (Python)
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.sqlite
+.env
+
+# =========================
+# execution-service (Java)
+# =========================
+target/
+*.class
+*.jar
+*.war
+.gradle/
+build/
+
+# =========================
+# desktop-client (Frontend)
+# =========================
+node_modules/
+dist/
+dist-ssr/
+.npm/
