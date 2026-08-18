@@ -1,0 +1,17 @@
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: assistant_rabbitmq
+    ports:
+      - "5672:5672"   # Puerto para la comunicación de nuestro código (AMQP)
+      - "15672:15672" # Puerto para el panel de administración web
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+volumes:
+  rabbitmq_data:
