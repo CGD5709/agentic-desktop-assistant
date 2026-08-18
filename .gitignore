@@ -34,3 +34,10 @@ node_modules/
 dist/
 dist-ssr/
 .npm/
+
+# Bases de datos locales de SQLite (Memoria del Agente)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
