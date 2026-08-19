@@ -1,0 +1,5 @@
+python_version = "3.11"
+python_platform = "windows"
+python_interpreter_path = ".venv/Scripts/python.exe"
+search_path = ["."]
+site_package_path = [".venv/Lib/site-packages"]

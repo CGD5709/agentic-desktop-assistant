@@ -25,7 +25,7 @@ async def main():
                 SystemMessage(content="Eres el cerebro de un asistente de escritorio. NUNCA uses herramientas a menos que el usuario te lo pida explícitamente."),
                 HumanMessage(content="Hola, me llamo Josevi.")
             ],
-            "correlation_id": "id-corr-001"
+            "correlation_id": "id-corr-001",
         }
         result_1 = await agent_graph.ainvoke(state_1, config=config)
         print(f"\n🤖 Asistente: {result_1['messages'][-1].content}")
@@ -34,7 +34,7 @@ async def main():
         print("\n\n=== TURNO 2: El usuario pide una acción ===")
         state_2: AgentState = {
             "messages": [HumanMessage(content="Por favor, haz un commit en git.")],
-            "correlation_id": "id-corr-002"
+            "correlation_id": "id-corr-002",
         }
         result_2 = await agent_graph.ainvoke(state_2, config=config)
         print(f"\n🤖 Asistente: {result_2['messages'][-1].content}")

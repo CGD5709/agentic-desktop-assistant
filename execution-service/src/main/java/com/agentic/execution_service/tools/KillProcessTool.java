@@ -7,10 +7,19 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Component
 public class KillProcessTool implements AgentTool {
+
+    // Lista negra de seguridad: procesos que NUNCA deben ser terminados
+    private static final Set<String> PROTECTED_PROCESSES = Set.of(
+            "docker.exe", "docker desktop.exe", "com.docker.backend.exe", "wsl.exe", "wslhost.exe",
+            "erl.exe", "beam.smp.exe", "epmd.exe", "rabbitmq-server",
+            "java.exe", "javaw.exe", "python.exe", "pythonw.exe",
+            "system", "idle", "svchost.exe", "csrss.exe", "smss.exe", "services.exe", "lsass.exe", "wininit.exe"
+    );
 
     @Override
     public String getName() {
@@ -19,45 +28,80 @@ public class KillProcessTool implements AgentTool {
 
     @Override
     public ToolDefinition getDefinition() {
+        Map<String, Object> nameProperty = Map.of(
+                "type", "string",
+                "description", "El nombre del ejecutable del proceso que se desea cerrar (ejemplo: 'notepad.exe', 'chrome.exe', 'calc.exe'). RECOMENDADO."
+        );
+
         Map<String, Object> pidProperty = Map.of(
                 "type", "integer",
-                "description", "El Process ID (PID) numérico del proceso que se desea forzar a cerrar."
+                "description", "El Process ID (PID) numérico específico del proceso, si se conoce con certeza."
         );
 
         Map<String, Object> parametersSchema = Map.of(
                 "type", "object",
-                "properties", Map.of("pid", pidProperty),
-                "required", List.of("pid")
+                "properties", Map.of(
+                        "nombre_proceso", nameProperty,
+                        "pid", pidProperty
+                )
         );
 
         return new ToolDefinition(
                 getName(),
-                "Termina/mata de forma forzosa un proceso en ejecución en el sistema operativo usando su PID.",
+                "Termina o cierra un proceso o aplicación en ejecución en el sistema operativo mediante su nombre de ejecutable (ej. 'notepad.exe') o su PID.",
                 parametersSchema
         );
     }
 
-   @Override
+    @Override
     public String execute(Map<String, Object> arguments) throws Exception {
-        if (arguments == null || !arguments.containsKey("pid")) {
-            throw new IllegalArgumentException("Falta el parámetro obligatorio 'pid'.");
+        if (arguments == null || (!arguments.containsKey("nombre_proceso") && !arguments.containsKey("pid"))) {
+            throw new IllegalArgumentException("Debes proporcionar al menos 'nombre_proceso' (ej: 'notepad.exe') o 'pid'.");
         }
 
-        // --- PARSEO DEFENSIVO ---
-        Object pidObj = arguments.get("pid");
-        int pid;
-        if (pidObj instanceof Number) {
-            pid = ((Number) pidObj).intValue();
-        } else if (pidObj instanceof String) {
-            pid = Integer.parseInt((String) pidObj);
+        String processName = null;
+        Integer pid = null;
+
+        if (arguments.containsKey("nombre_proceso")) {
+            processName = String.valueOf(arguments.get("nombre_proceso")).trim();
+            if (!processName.toLowerCase().endsWith(".exe")) {
+                processName += ".exe";
+            }
+        }
+
+        if (arguments.containsKey("pid")) {
+            Object pidObj = arguments.get("pid");
+            if (pidObj instanceof Number) {
+                pid = ((Number) pidObj).intValue();
+            } else if (pidObj instanceof String && !((String) pidObj).isBlank()) {
+                try {
+                    pid = Integer.parseInt((String) pidObj);
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        // --- BARRERA DE SEGURIDAD ---
+        if (processName != null && PROTECTED_PROCESSES.contains(processName.toLowerCase())) {
+            return "Operación bloqueada por seguridad: '" + processName + "' es un proceso crítico de la infraestructura o del sistema operativo y no se puede cerrar.";
+        }
+
+        if (pid != null && (pid == 0 || pid == 4)) {
+            return "Operación bloqueada por seguridad: El PID " + pid + " pertenece al Núcleo del Sistema y no se puede cerrar.";
+        }
+
+        ProcessBuilder pb;
+        String targetDesc;
+
+        if (processName != null) {
+            targetDesc = "proceso '" + processName + "'";
+            System.out.println("   💀 Matando proceso por nombre: " + processName);
+            pb = new ProcessBuilder("taskkill", "/F", "/IM", processName);
         } else {
-            throw new IllegalArgumentException("El PID proporcionado no tiene un formato numérico válido: " + pidObj);
+            targetDesc = "PID " + pid;
+            System.out.println("   💀 Matando proceso por PID: " + pid);
+            pb = new ProcessBuilder("taskkill", "/F", "/PID", String.valueOf(pid));
         }
-        // ------------------------
 
-        System.out.println("   💀 Matando proceso con PID: " + pid);
-
-        ProcessBuilder pb = new ProcessBuilder("taskkill", "/F", "/PID", String.valueOf(pid));
         pb.redirectErrorStream(true);
         Process process = pb.start();
 
@@ -66,9 +110,9 @@ public class KillProcessTool implements AgentTool {
         int exitCode = process.waitFor();
 
         if (exitCode != 0) {
-            return "Error al intentar matar el proceso " + pid + ":\n" + output;
+            return "No se pudo cerrar el " + targetDesc + ":\n" + output;
         }
 
-        return "El proceso con PID " + pid + " ha sido terminado exitosamente.\nDetalles: " + output;
+        return "El " + targetDesc + " ha sido cerrado exitosamente.\nDetalles: " + output;
     }
 }
