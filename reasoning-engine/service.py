@@ -5,7 +5,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
 from langchain_core.runnables import RunnableConfig
 
-from agent import builder, AgentState, mq_client, JARVIS_SYSTEM_PROMPT
+from agent import builder, AgentState, mq_client, JARVIS_SYSTEM_PROMPT, profile_store, vector_store, memory_manager
 from models import EventEnvelope, ToolExecutionResponsePayload
 
 # Variables globales para el servicio
@@ -69,45 +69,60 @@ async def main():
     print("🔌 Iniciando Arquitectura Orientada a Eventos...")
     await mq_client.connect()
     
+    print("🧠 Inicializando Almacén de Perfil y Memoria Vectorial...")
+    await profile_store.initialize()
+    await vector_store.initialize()
+
     # Levantamos el consumidor en segundo plano SIN bloquear la consola
     asyncio.create_task(mq_client.start_consuming(handle_rabbitmq_message))
     
-    async with AsyncSqliteSaver.from_conn_string("agent_memory.db") as memory_saver:
-        app_graph = builder.compile(checkpointer=memory_saver)
-        
-        print("✅ Motor de Razonamiento listo y en escucha (Jarvis / Qwen 2.5 7B).")
-        print("------------------------------------------------------------------")
-        
-        # Bucle infinito interactivo
-        while True:
-            try:
-                # Ejecutamos input() en otro hilo para no bloquear eventos
-                user_input = await asyncio.get_event_loop().run_in_executor(None, input, "\nUsuario: ")
-            except (KeyboardInterrupt, EOFError):
-                break
-                
-            # Ignoramos si el usuario solo pulsó Enter o espacios
-            if not user_input or not user_input.strip():
-                continue
-                
-            if user_input.strip().lower() in ['salir', 'exit']:
-                print("👋 Cerrando asistente...")
-                break
-                
-            state_update: AgentState = {
-                "messages": [HumanMessage(content=user_input.strip())],
-                "correlation_id": "req-" + str(uuid.uuid4())[:8],
-            }
+    try:
+        async with AsyncSqliteSaver.from_conn_string("agent_memory.db") as memory_saver:
+            app_graph = builder.compile(checkpointer=memory_saver)
             
-            # Disparamos el grafo de LangGraph
-            result = await app_graph.ainvoke(state_update, config=config)
+            print("✅ Motor de Razonamiento listo con Memoria 4-Niveles (Jarvis / Qwen 2.5 7B).")
+            print("------------------------------------------------------------------")
             
-            # Obtenemos la última respuesta del asistente
-            last_msg = result["messages"][-1]
-            if isinstance(last_msg, AIMessage) and last_msg.content:
-                print(f"🤖 Asistente: {last_msg.content}")
+            # Bucle infinito interactivo
+            while True:
+                try:
+                    # Ejecutamos input() en otro hilo para no bloquear eventos
+                    user_input = await asyncio.get_event_loop().run_in_executor(None, input, "\nUsuario: ")
+                except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
+                    break
+                    
+                # Ignoramos si el usuario solo pulsó Enter o espacios
+                if not user_input or not user_input.strip():
+                    continue
+                    
+                if user_input.strip().lower() in ['salir', 'exit', 'quit']:
+                    print("👋 Cerrando asistente...")
+                    break
+                    
+                state_update: AgentState = {
+                    "messages": [HumanMessage(content=user_input.strip())],
+                    "correlation_id": "req-" + str(uuid.uuid4())[:8],
+                }
+                
+                # Disparamos el grafo de LangGraph
+                result = await app_graph.ainvoke(state_update, config=config)
+                
+                # Obtenemos la última respuesta del asistente
+                last_msg = result["messages"][-1]
+                if isinstance(last_msg, AIMessage) and last_msg.content:
+                    print(f"🤖 Asistente: {last_msg.content}")
 
-    await mq_client.close()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        print("💾 Guardando memorias y cerrando servicios limpiamente...")
+        await memory_manager.flush_and_close()
+        await profile_store.close()
+        await mq_client.close()
+        print("✅ Apagado completado.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass

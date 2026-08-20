@@ -13,8 +13,12 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "⚠️ Ollama no responde. Asegúrate de tener la app abierta." -ForegroundColor Red
 }
 
-# 3. Dar instrucciones para Python
-Write-Host "`nTodo listo. Para ejecutar el motor de razonamiento, usa estos comandos:" -ForegroundColor Cyan
-Write-Host "1. cd reasoning-engine"
-Write-Host "2. .\.venv\Scripts\Activate.ps1"
-Write-Host "3. python main.py"
+# 3. Dar instrucciones para el Backend y el Frontend
+Write-Host "`nTodo listo. Para ejecutar el sistema completo:" -ForegroundColor Cyan
+Write-Host "1. En una terminal (Backend WebSockets):" -ForegroundColor Yellow
+Write-Host "   cd reasoning-engine"
+Write-Host "   .\.venv\Scripts\Activate.ps1"
+Write-Host "   python server.py"
+Write-Host "`n2. En otra terminal (Frontend Desktop Client):" -ForegroundColor Yellow
+Write-Host "   cd desktop-client"
+Write-Host "   npm run dev"

@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/types.ts","./src/components/arcreactorhud.tsx","./src/components/chatpanel.tsx","./src/components/headerhud.tsx","./src/components/settingsview.tsx","./src/components/taskspanel.tsx","./src/hooks/usevoice.ts","./src/services/websocket.ts"],"version":"5.7.3"}
