@@ -14,23 +14,24 @@ class EventMetadata(BaseModel):
     source: str
     event_type: EventType = Field(..., alias="eventType")
 
-# --- Payloads específicos ---
 
+# Payload for when the agent requests a tool to be executed | event_type == EXECUTION_REQUEST
 class ToolExecutionRequestPayload(BaseModel):
     tool_name: str = Field(..., alias="toolName")
     arguments: Dict[str, Any]
 
+# Payload for when a tool execution response is received | event_type == EXECUTION_RESPONSE
 class ToolExecutionResponsePayload(BaseModel):
     tool_name: str = Field(..., alias="toolName")
-    status: str  # ej. "SUCCESS", "ERROR", "PENDING_APPROVAL"
+    status: str #HAY QUE DEFINIR MENSAJES DE ESTATUS  
     output: Optional[str] = None
     error_code: Optional[str] = Field(None, alias="errorCode")
 
-# --- Envoltorio principal (Custom Envelope) ---
 
+# Custom Envelope for the message
 class EventEnvelope(BaseModel):
     metadata: EventMetadata
     payload: Dict[str, Any]  
-    # Nota: El payload es un diccionario genérico en la raíz. 
-    # Dependiendo del event_type en metadata, lo parsearemos luego 
-    # al modelo específico (Request o Response).
+    # The payload is a generic dictionary in the root. 
+    # Depending on the event_type in metadata, we will parse it 
+    # to the specific model (Request or Response).
