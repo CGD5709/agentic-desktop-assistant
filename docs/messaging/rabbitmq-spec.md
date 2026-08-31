@@ -44,7 +44,51 @@ self.exchange = await self.channel.declare_exchange(
 
 ## 2. Routing (Routing Keys)
 
-The system leverages RabbitMQ's **Topic** pattern to achieve loose coupling between the sender and the receivers. Routing keys are structured following a semantic hierarchy:
+The system leverages RabbitMQ's **Topic** pattern to achieve loose coupling between the sender and the receivers. Below is the topological map of the event routing:
+
+```mermaid
+graph LR
+    %% Definición de Productores
+    RE_Pub[Reasoning Engine]
+    ES_Pub[Execution Service]
+
+    subgraph RabbitMQ Broker
+        %% Exchange central
+        Topic((Exchange: agent_events<br>Type: Topic))
+        
+        %% Colas
+        Q_RE[(reasoning_engine_queue)]
+        Q_ES[(execution_service_queue)]
+
+        %% Reglas de Enrutamiento (Bindings)
+        Topic -- "tool.response.*" --> Q_RE
+        Topic -- "system.discovery.execution_service" --> Q_RE
+        Topic -- "tool.request.<name>" --> Q_ES
+    end
+
+    %% Definición de Consumidores
+    RE_Sub[Reasoning Engine]
+    ES_Sub[Execution Service]
+
+    %% Flujo de publicación
+    RE_Pub -- Publish --> Topic
+    ES_Pub -- Publish --> Topic
+
+    %% Flujo de consumo
+    Q_RE -. Consume .-> RE_Sub
+    Q_ES -. Consume .-> ES_Sub
+    
+    %% Estilos
+    classDef broker fill:#f4f4f4,stroke:#333,stroke-width:2px;
+    classDef exchange fill:#f8cecc,stroke:#b85450,stroke-width:2px;
+    classDef queue fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
+    
+    class Topic exchange;
+    class Q_RE,Q_ES queue;
+```
+
+
+Routing keys are structured following a semantic hierarchy:
 
 | Routing Key | Source | Destination (Queue) | Purpose |
 | :--- | :--- | :--- | :--- |
