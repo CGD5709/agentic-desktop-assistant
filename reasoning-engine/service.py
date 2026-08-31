@@ -13,12 +13,12 @@ app_graph = None
 # Usamos un único hilo persistente para todo el ciclo de vida del servicio
 config: RunnableConfig = {"configurable": {"thread_id": "sesion-produccion"}}
 
-def convert_java_tools_to_openai_format(raw_tools: list) -> list:
+def convert_execution_tools_to_openai_format(raw_tools: list) -> list:
     """
-    Convierte el manifiesto de herramientas de Java al formato OpenAI
+    Convierte el manifiesto de herramientas de execution-service al formato OpenAI
     que ChatOllama.bind_tools() espera.
     
-    Java envía:   {"name": "...", "description": "...", "parameters": {...}}
+    execution-service envía:   {"name": "...", "description": "...", "parameters": {...}}
     OpenAI espera: {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
     """
     converted = []
@@ -38,7 +38,7 @@ async def handle_rabbitmq_message(raw_body: str, routing_key: str):
     """El CALLBACK que escucha todos los eventos de la red."""
     
     # === 1. INTERCEPTAMOS EL SYSTEM DISCOVERY ===
-    if routing_key == "system.discovery.java":
+    if routing_key == "system.discovery.execution_service":
         try:
             data = json.loads(raw_body)
             tools_list = data.get("payload", {}).get("tools", [])
@@ -48,11 +48,11 @@ async def handle_rabbitmq_message(raw_body: str, routing_key: str):
             dynamic_tools.clear()
             
             # Convertimos al formato OpenAI antes de almacenar
-            converted_tools = convert_java_tools_to_openai_format(tools_list)
+            converted_tools = convert_execution_tools_to_openai_format(tools_list)
             dynamic_tools.extend(converted_tools)
             
             nombres = [t["function"]["name"] for t in converted_tools]
-            print(f"\n📡 [System Discovery] Manifiesto recibido de Java.")
+            print(f"\n📡 [System Discovery] Manifiesto recibido de execution-service.")
             print(f"   -> 🛠️ {len(converted_tools)} herramienta(s) asimilada(s): {nombres}")
             print("\nUsuario: ", end="", flush=True)
         except Exception as e:
@@ -61,7 +61,7 @@ async def handle_rabbitmq_message(raw_body: str, routing_key: str):
 
     # === 2. REGISTRO DE RESPUESTAS DE HERRAMIENTAS ===
     if "tool.response" in routing_key:
-        print(f"\n[RabbitMQ] 📥 Respuesta recibida de Java (Router: {routing_key})")
+        print(f"\n[RabbitMQ] 📥 Respuesta recibida de execution-service (Router: {routing_key})")
 
 async def main():
     global app_graph

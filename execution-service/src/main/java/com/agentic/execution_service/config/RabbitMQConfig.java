@@ -11,7 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public class RabbitMQConfig {
 
     public static final String EXCHANGE_NAME = "agent_events";
-    public static final String QUEUE_NAME = "java_execution_queue";
+    public static final String QUEUE_NAME = "execution_service_queue";
     public static final String ROUTING_KEY = "tool.request.*";
 
     // 1. Declaramos el Exchange (por si Java arranca antes que Python)

@@ -32,7 +32,7 @@ public class ExecutionListener {
 
     @RabbitListener(queues = RabbitMQConfig.QUEUE_NAME)
     public void receiveToolRequest(EventEnvelope requestEnvelope) {
-        System.out.println("\n📥 [RabbitMQ] ¡Petición recibida desde Python!");
+        System.out.println("\n📥 [RabbitMQ] ¡Petición recibida desde reasoning-engine!");
         
         String correlationId = requestEnvelope.metadata().correlationId();
         String toolName = (String) requestEnvelope.payload().get("toolName");
@@ -53,7 +53,7 @@ public class ExecutionListener {
                 output = tool.execute(arguments);
             } else {
                 status = "ERROR";
-                output = "Herramienta desconocida para el microservicio Java: " + toolName;
+                output = "Herramienta desconocida para el execution-service: " + toolName;
             }
         } catch (Exception e) {
             status = "ERROR";
@@ -64,7 +64,7 @@ public class ExecutionListener {
                 UUID.randomUUID().toString(),
                 correlationId,
                 Instant.now().toEpochMilli(),
-                "java-execution-service",
+                "execution-service",
                 EventType.EXECUTION_RESPONSE
         );
 

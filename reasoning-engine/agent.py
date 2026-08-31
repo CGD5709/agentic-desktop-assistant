@@ -193,7 +193,7 @@ async def command_node(state: AgentState):
 # === 4. NODO DE ACCIÓN (Ejecución RPC sobre RabbitMQ) ===
 async def action_node(state: AgentState):
     """
-    Envía la petición de tool call a Java vía RabbitMQ y espera la respuesta
+    Envía la petición de tool call a execution-service vía RabbitMQ y espera la respuesta
     de forma asíncrona y sincronizada (sin límite arbitrario de tiempo).
     """
     last_message = state["messages"][-1]
@@ -212,7 +212,7 @@ async def action_node(state: AgentState):
                 eventId=str(uuid.uuid4()),
                 correlationId=str(tool_call_id),
                 timestamp=int(time.time() * 1000),
-                source="python-reasoning-engine",
+                source="reasoning-engine",
                 eventType=EventType.EXECUTION_REQUEST
             ),
             payload=request_payload.model_dump(by_alias=True)
@@ -221,7 +221,7 @@ async def action_node(state: AgentState):
         routing_key = f"tool.request.{tool_name}"
         print(f" 🚀 [RabbitMQ] Petición lanzada para: {tool_name}")
 
-        # Esperamos la respuesta de Java sin límite de tiempo
+        # Esperamos la respuesta de execution-service sin límite de tiempo
         raw_response = await mq_client.send_and_wait(routing_key, envelope)
 
         payload = raw_response.get("payload", {})

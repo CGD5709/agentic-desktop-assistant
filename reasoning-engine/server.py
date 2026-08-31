@@ -18,8 +18,8 @@ app_graph = None
 memory_saver_ctx = None
 
 
-def convert_java_tools_to_openai_format(raw_tools: list) -> list:
-    """Convierte el manifiesto de herramientas de Java al formato OpenAI."""
+def convert_execution_tools_to_openai_format(raw_tools: list) -> list:
+    """Convierte el manifiesto de herramientas de execution-service al formato OpenAI."""
     converted = []
     for tool in raw_tools:
         openai_tool = {
@@ -35,16 +35,16 @@ def convert_java_tools_to_openai_format(raw_tools: list) -> list:
 
 
 async def handle_rabbitmq_message(raw_body: str, routing_key: str):
-    """Callback de RabbitMQ para capturar descubrimiento de herramientas de Java."""
-    if routing_key == "system.discovery.java":
+    """Callback de RabbitMQ para capturar descubrimiento de herramientas de execution-service."""
+    if routing_key == "system.discovery.execution_service":
         try:
             data = json.loads(raw_body)
             tools_list = data.get("payload", {}).get("tools", [])
             dynamic_tools.clear()
-            converted_tools = convert_java_tools_to_openai_format(tools_list)
+            converted_tools = convert_execution_tools_to_openai_format(tools_list)
             dynamic_tools.extend(converted_tools)
             nombres = [t["function"]["name"] for t in converted_tools]
-            print(f"\n📡 [System Discovery] Herramientas recibidas de Java: {nombres}")
+            print(f"\n📡 [System Discovery] Herramientas recibidas de execution-service: {nombres}")
             # Notificamos a los clientes WebSocket conectados sobre las nuevas herramientas
             await ws_manager.broadcast({
                 "type": "tools_updated",

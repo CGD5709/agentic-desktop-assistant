@@ -41,14 +41,14 @@ public class ToolRegistryBroadcaster {
                 UUID.randomUUID().toString(),
                 "system-startup",
                 Instant.now().toEpochMilli(),
-                "java-execution-service",
+                "execution-service",
                 EventType.TOOL_REGISTRY_BROADCAST
         );
 
         Map<String, Object> payload = Map.of("tools", toolDefinitions);
         EventEnvelope envelope = new EventEnvelope(metadata, payload);
 
-        String routingKey = "system.discovery.java";
+        String routingKey = "system.discovery.execution_service";
         rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE_NAME, routingKey, envelope);
         
         List<String> toolNames = availableTools.stream().map(AgentTool::getName).collect(Collectors.toList());

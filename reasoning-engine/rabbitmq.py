@@ -83,15 +83,15 @@ class RabbitMQClient:
         if not self.channel or not self.exchange:
             raise ConnectionError("RabbitMQ client is not initialized. Call connect() before consuming.")
 
-        # Declare the exclusive queue for this Python agent instance
-        queue = await self.channel.declare_queue("python_reasoning_queue", durable=True)
+        # Declare the exclusive queue for this reasoning engine instance
+        queue = await self.channel.declare_queue("reasoning_engine_queue", durable=True)
         
         # Bind the queue to the exchange for tool discovery and RPC responses
-        await queue.bind(self.exchange, routing_key="system.discovery.java")
+        await queue.bind(self.exchange, routing_key="system.discovery.execution_service")
         await queue.bind(self.exchange, routing_key="tool.response.*")
         
         # TODO: Replace print with logger.info
-        print("[RabbitMQ] Listening for events on 'python_reasoning_queue'...")
+        print("[RabbitMQ] Listening for events on 'reasoning_engine_queue'...")
 
         # TODO: Refactor consumer error handling to prevent Poison Pills and false ACKs.
         # 1. Use async with message.process(ignore_processed=True) for manual control.
