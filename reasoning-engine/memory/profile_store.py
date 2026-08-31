@@ -7,19 +7,25 @@ from datetime import datetime, timezone
 
 class ProfileStore:
     """
-    Nivel 0: Perfil Estructurado
-    Almacena información estable, preferencias explícitas y configuración del usuario
-    de forma persistente en una base de datos SQLite asíncrona.
+    Level 0 Memory: Structured Profile Store.
+    An asynchronous key-value persistence layer built on SQLite.
+    Designed to store stable user preferences, configuration data, and deterministic facts
+    without requiring vector-based semantic search.
     """
 
     def __init__(self, db_path: str = "./data/assistant_profile.db"):
         self.db_path = db_path
         self._db: Optional[aiosqlite.Connection] = None
 
-    async def initialize(self):
-        """Crea el directorio si no existe e inicializa la tabla de perfiles."""
+    async def initialize(self) -> None:
+        """
+        Bootstraps the database infrastructure. 
+        Ensures the target directory exists and executes the DDL schema. 
+        This operation is idempotent.
+        """
         os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
         self._db = await aiosqlite.connect(self.db_path)
+        # Override default tuple factory to access columns by name (e.g., row["value"])
         self._db.row_factory = aiosqlite.Row
 
         await self._db.execute("""
@@ -32,11 +38,19 @@ class ProfileStore:
         """)
         await self._db.commit()
 
-    async def _ensure_connected(self):
+    async def _ensure_connected(self) -> None:
+        """
+        Implements lazy initialization for the database connection.
+        Ensures the I/O bottleneck only occurs exactly when the first query is dispatched.
+        """
         if self._db is None:
             await self.initialize()
 
     async def get(self, key: str, default: Any = None) -> Any:
+        """
+        Retrieves a value by its exact key.
+        Applies defensive JSON deserialization: falls back to raw string if parsing fails.
+        """
         await self._ensure_connected()
         assert self._db is not None
         async with self._db.execute("SELECT value FROM user_profile WHERE key = ?", (key,)) as cursor:
@@ -49,6 +63,10 @@ class ProfileStore:
         return default
 
     async def set(self, key: str, value: Any, category: str = "general") -> None:
+        """
+        Performs an atomic UPSERT (Insert or Update) for a given key-value pair.
+        Complex objects (dicts, lists) are automatically serialized to JSON strings.
+        """
         await self._ensure_connected()
         assert self._db is not None
         serialized_val = json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else value
@@ -65,6 +83,12 @@ class ProfileStore:
         await self._db.commit()
 
     async def delete(self, key: str) -> bool:
+        """
+        Removes a specific record from the store.
+        
+        Returns:
+            bool: True if a row was successfully deleted, False if the key did not exist.
+        """
         await self._ensure_connected()
         assert self._db is not None
         cursor = await self._db.execute("DELETE FROM user_profile WHERE key = ?", (key,))
@@ -72,6 +96,9 @@ class ProfileStore:
         return cursor.rowcount > 0
 
     async def get_all(self) -> Dict[str, Any]:
+        """
+        Fetches the entire profile dataset, deserializing values where applicable.
+        """
         await self._ensure_connected()
         assert self._db is not None
         result = {}
@@ -87,6 +114,9 @@ class ProfileStore:
         return result
 
     async def get_by_category(self, category: str) -> Dict[str, Any]:
+        """
+        Fetches all profile records grouped under a specific category tag.
+        """
         await self._ensure_connected()
         assert self._db is not None
         result = {}
@@ -102,7 +132,10 @@ class ProfileStore:
         return result
 
     async def format_for_context(self) -> str:
-        """Formatea el perfil estructurado como bloque de contexto para el LLM."""
+        """
+        Serializes the relational data into an XML-tagged text block.
+        Designed for direct injection into the LLM's system prompt context window.
+        """
         data = await self.get_all()
         if not data:
             return ""
@@ -116,7 +149,8 @@ class ProfileStore:
         lines.append("</user_profile>")
         return "\n".join(lines)
 
-    async def close(self):
+    async def close(self) -> None:
+        """Gracefully closes the SQLite connection and releases file locks."""
         if self._db is not None:
             await self._db.close()
             self._db = None

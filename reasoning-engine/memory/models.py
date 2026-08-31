@@ -17,7 +17,7 @@ class MemoryItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     text: str
     category: MemoryCategory = MemoryCategory.FACT
-    importance: int = Field(default=3, ge=1, le=5)
+    importance: int = Field(default=3, ge=1, le=5) #Upper limit may be changed to 10
     project: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_accessed_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
