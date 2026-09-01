@@ -1,18 +1,34 @@
 import os
 import asyncio
-from typing import List, Optional, Dict, Any, Sequence
+from typing import List, Optional, Dict, Any, Sequence, Mapping
 from datetime import datetime, timezone
 import chromadb
+from chromadb.api import ClientAPI
+from chromadb.api.models.Collection import Collection
+from chromadb.api.types import Where
 from langchain_ollama import OllamaEmbeddings
 from memory.models import MemoryItem, MemoryCategory
 
+# Default vector store configuration
+DEFAULT_PERSIST_DIR = "./data/chroma_db"
+DEFAULT_COLLECTION_NAME = "jarvis_long_term_memory"
+DEFAULT_EMBEDDING_MODEL = "nomic-embed-text"
+DEFAULT_OLLAMA_URL = "http://localhost:11434"
 
-def _sanitize_metadata(raw_meta: Dict[str, Any]) -> Dict[str, Any]:
+# Default retrieval and scoring parameters
+DEFAULT_SEARCH_LIMIT = 4
+DEFAULT_SCORE_THRESHOLD = 0.65
+DEFAULT_IMPORTANCE_SCORE = 3
+SIMILARITY_PRECISION = 3
+
+
+def _sanitize_metadata(raw_meta: Mapping[str, Any]) -> Dict[str, Any]:
     """
-    ChromaDB solo admite str, int, float y bool como valores de metadatos.
-    Convierte valores None o tipos complejos a representaciones compatibles.
+    Sanitizes metadata dictionary for ChromaDB compatibility.
+    ChromaDB only supports primitive types (str, int, float, bool) as metadata values.
+    Converts None or complex types into compatible representations.
     """
-    clean = {}
+    clean: Dict[str, Any] = {}
     for k, v in raw_meta.items():
         if v is None:
             clean[k] = ""
@@ -27,28 +43,31 @@ def _sanitize_metadata(raw_meta: Dict[str, Any]) -> Dict[str, Any]:
 
 class VectorMemoryStore:
     """
-    Nivel 2: Memoria a Largo Plazo Semántica (RAG)
-    Almacena recuerdos relevantes entre sesiones en una base de datos vectorial ChromaDB local,
-    utilizando el modelo de embeddings nomic-embed-text ejecutado en Ollama.
+    Level 2 Memory: Semantic Long-Term Memory (RAG).
+    Persists cross-session memories in a local ChromaDB vector database
+    using Ollama embeddings (e.g., nomic-embed-text).
     """
 
     def __init__(
         self,
-        persist_directory: str = "./data/chroma_db",
-        collection_name: str = "jarvis_long_term_memory",
-        embedding_model: str = "nomic-embed-text",
-        ollama_base_url: str = "http://localhost:11434"
-    ):
+        persist_directory: str = DEFAULT_PERSIST_DIR,
+        collection_name: str = DEFAULT_COLLECTION_NAME,
+        embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+        ollama_base_url: str = DEFAULT_OLLAMA_URL
+    ) -> None:
         self.persist_directory = persist_directory
         self.collection_name = collection_name
         self.embedding_model = embedding_model
         self.ollama_base_url = ollama_base_url
-        self._client: Optional[chromadb.PersistentClient] = None
-        self._collection = None
+        self._client: Optional[ClientAPI] = None
+        self._collection: Optional[Collection] = None
         self._embeddings: Optional[OllamaEmbeddings] = None
 
-    def _initialize(self):
-        """Inicializa ChromaDB y la colección localmente de forma síncrona/lazy."""
+    def _initialize(self) -> None:
+        """
+        Synchronously initializes ChromaDB client, collection, and embedding model.
+        Implements lazy loading to defer connection overhead until first access.
+        """
         if self._client is None:
             os.makedirs(os.path.abspath(self.persist_directory), exist_ok=True)
             self._client = chromadb.PersistentClient(path=self.persist_directory)
@@ -61,21 +80,33 @@ class VectorMemoryStore:
                 base_url=self.ollama_base_url
             )
 
-    async def initialize(self):
-        """Inicialización asíncrona no bloqueante."""
+    async def initialize(self) -> None:
+        """Asynchronously initializes the vector store off the main event loop."""
         await asyncio.to_thread(self._initialize)
 
     async def _get_embedding(self, text: str) -> List[float]:
+        """
+        Generates vector embeddings for a given text using the configured Ollama model.
+        
+        Returns:
+            List[float]: The embedding vector, or an empty list if generation fails.
+        """
         self._initialize()
         assert self._embeddings is not None
         try:
             return await asyncio.to_thread(self._embeddings.embed_query, text)
         except Exception as e:
-            print(f"⚠️ [VectorStore] Error al generar embedding con Ollama ({self.embedding_model}): {e}")
+            # TODO: Replace with proper logger
+            print(f"⚠️ [VectorStore] Error generating embedding with Ollama ({self.embedding_model}): {e}")
             return []
 
     async def add_memory(self, item: MemoryItem) -> bool:
-        """Añade un nuevo recuerdo con embedding y metadatos estructurados."""
+        """
+        Persists a new memory item with its computed embedding and sanitized metadata.
+        
+        Returns:
+            bool: True if the item was successfully stored, False otherwise.
+        """
         try:
             embedding = await self._get_embedding(item.text)
             if not embedding:
@@ -102,29 +133,40 @@ class VectorMemoryStore:
                 documents=[item.text],
                 metadatas=[metadata]
             )
-            print(f" 💾 [VectorStore] Memoria guardada ({metadata['category']}): {item.text[:60]}...")
+            # TODO: Replace with proper logger
+            print(f" 💾 [VectorStore] Memory saved ({metadata['category']}): {item.text[:60]}...")
             return True
         except Exception as e:
-            print(f"❌ [VectorStore] Error guardando memoria: {e}")
+            # TODO: Replace with proper logger
+            print(f"❌ [VectorStore] Error saving memory: {e}")
             return False
 
     async def search_memories(
         self,
         query: str,
-        limit: int = 4,
-        score_threshold: float = 0.65,
+        limit: int = DEFAULT_SEARCH_LIMIT,
+        score_threshold: float = DEFAULT_SCORE_THRESHOLD,
         category: Optional[str] = None,
         project: Optional[str] = None
     ) -> List[MemoryItem]:
         """
-        Busca recuerdos semánticamente relevantes aplicando umbral de similitud
-        y filtros de metadatos opcionales.
+        Searches for semantically relevant memories with optional metadata filters.
+        
+        Args:
+            query: The search query text.
+            limit: Maximum number of results to retrieve.
+            score_threshold: Minimum cosine similarity threshold (0.0 to 1.0).
+            category: Optional category filter.
+            project: Optional project filter.
+            
+        Returns:
+            List[MemoryItem]: Filtered and ranked list of relevant memory items.
         """
         try:
             self._initialize()
             assert self._collection is not None
 
-            # Si la base de datos está vacía, evitamos consulta innecesaria
+            # Avoid unnecessary queries if collection is empty
             total_count = await asyncio.to_thread(self._collection.count)
             if total_count == 0:
                 return []
@@ -133,8 +175,9 @@ class VectorMemoryStore:
             if not embedding:
                 return []
 
-            where_clause: Optional[Dict[str, Any]] = None
-            conditions = []
+            # Build metadata filter query
+            where_clause: Optional[Where] = None
+            conditions: List[Where] = []
             if category:
                 conditions.append({"category": category})
             if project:
@@ -167,56 +210,69 @@ class VectorMemoryStore:
             now_iso = datetime.now(timezone.utc).isoformat()
 
             for i in range(len(ids)):
-                mem_id = ids[i]
-                doc = docs[i] if i < len(docs) else ""
-                meta = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
+                mem_id = str(ids[i])
+                doc = str(docs[i]) if i < len(docs) else ""
+                raw_meta = metadatas[i] if i < len(metadatas) and metadatas[i] else {}
+                meta: Dict[str, Any] = dict(raw_meta)
                 dist = distances[i] if i < len(distances) else 1.0
 
-                # Para distancia coseno: similitud = 1 - distancia
+                # For cosine distance metric: similarity = 1.0 - distance
                 similarity = max(0.0, 1.0 - float(dist))
 
                 if similarity >= score_threshold:
-                    cat_str = meta.get("category", "FACT")
+                    cat_str = str(meta.get("category", "FACT"))
                     try:
                         cat_enum = MemoryCategory(cat_str)
                     except Exception:
                         cat_enum = MemoryCategory.FACT
 
+                    raw_imp = meta.get("importance", DEFAULT_IMPORTANCE_SCORE)
+                    try:
+                        imp_val = int(raw_imp) if raw_imp is not None else DEFAULT_IMPORTANCE_SCORE
+                    except (ValueError, TypeError):
+                        imp_val = DEFAULT_IMPORTANCE_SCORE
+
+                    proj_val = meta.get("project")
+                    created_at_val = meta.get("created_at")
+                    last_accessed_val = meta.get("last_accessed_at")
+                    source_id_val = meta.get("source_id")
+
                     item = MemoryItem(
                         id=mem_id,
                         text=doc,
                         category=cat_enum,
-                        importance=int(meta.get("importance", 3)),
-                        project=meta.get("project") or None,
-                        created_at=meta.get("created_at", now_iso),
-                        last_accessed_at=meta.get("last_accessed_at", now_iso),
-                        source_id=meta.get("source_id") or None,
-                        similarity_score=round(similarity, 3)
+                        importance=imp_val,
+                        project=str(proj_val) if proj_val else None,
+                        created_at=str(created_at_val) if created_at_val else now_iso,
+                        last_accessed_at=str(last_accessed_val) if last_accessed_val else now_iso,
+                        source_id=str(source_id_val) if source_id_val else None,
+                        similarity_score=round(similarity, SIMILARITY_PRECISION)
                     )
                     memories.append(item)
                     
-                    # Actualizamos asíncronamente el último acceso
+                    # Asynchronously refresh last accessed timestamp
                     asyncio.create_task(self.touch_memory(mem_id, meta))
 
             return memories
         except Exception as e:
-            print(f"⚠️ [VectorStore] Error en búsqueda semántica: {e}")
+            # TODO: Replace with proper logger
+            print(f"⚠️ [VectorStore] Error during semantic search: {e}")
             return []
 
-    async def touch_memory(self, memory_id: str, current_metadata: Optional[Dict[str, Any]] = None):
-        """Actualiza la fecha de último acceso de un recuerdo."""
+    async def touch_memory(self, memory_id: str, current_metadata: Optional[Mapping[str, Any]] = None) -> None:
+        """Updates the last accessed timestamp of a memory item."""
         try:
             self._initialize()
             assert self._collection is not None
             
+            meta: Dict[str, Any] = {}
             if current_metadata:
                 meta = dict(current_metadata)
             else:
                 existing = await asyncio.to_thread(self._collection.get, ids=[memory_id], include=["metadatas"])
                 if existing and existing.get("metadatas") and existing["metadatas"]:
-                    meta = existing["metadatas"][0] or {}
-                else:
-                    meta = {}
+                    raw = existing["metadatas"][0] or {}
+                    meta = dict(raw)
 
             meta["last_accessed_at"] = datetime.now(timezone.utc).isoformat()
             clean_meta = _sanitize_metadata(meta)
@@ -227,6 +283,7 @@ class VectorMemoryStore:
                 metadatas=[clean_meta]
             )
         except Exception:
+            # TODO: Replace with proper logger
             pass
 
     async def update_memory(
@@ -236,7 +293,12 @@ class VectorMemoryStore:
         category: Optional[MemoryCategory] = None,
         importance: Optional[int] = None
     ) -> bool:
-        """Actualiza el contenido y embedding de un recuerdo existente."""
+        """
+        Updates the text content, embedding, and metadata of an existing memory.
+        
+        Returns:
+            bool: True if memory was successfully updated, False otherwise.
+        """
         try:
             embedding = await self._get_embedding(new_text)
             if not embedding:
@@ -247,10 +309,12 @@ class VectorMemoryStore:
 
             existing = await asyncio.to_thread(self._collection.get, ids=[memory_id], include=["metadatas"])
             if not existing or not existing.get("ids") or not existing["ids"]:
-                print(f"⚠️ [VectorStore] No se encontró la memoria con ID: {memory_id}")
+                # TODO: Replace with proper logger
+                print(f"⚠️ [VectorStore] Memory not found for ID: {memory_id}")
                 return False
 
-            meta = existing["metadatas"][0] if existing.get("metadatas") and existing["metadatas"] and existing["metadatas"][0] else {}
+            raw_meta = existing["metadatas"][0] if existing.get("metadatas") and existing["metadatas"] and existing["metadatas"][0] else {}
+            meta: Dict[str, Any] = dict(raw_meta)
             if category:
                 meta["category"] = category.value if isinstance(category, MemoryCategory) else str(category)
             if importance is not None:
@@ -266,26 +330,38 @@ class VectorMemoryStore:
                 embeddings=[embedding],
                 metadatas=[clean_meta]
             )
-            print(f" 🔄 [VectorStore] Memoria actualizada (ID: {memory_id[:8]}): {new_text[:50]}...")
+            # TODO: Replace with proper logger
+            print(f" 🔄 [VectorStore] Memory updated (ID: {memory_id[:8]}): {new_text[:50]}...")
             return True
         except Exception as e:
-            print(f"❌ [VectorStore] Error actualizando memoria: {e}")
+            # TODO: Replace with proper logger
+            print(f"❌ [VectorStore] Error updating memory: {e}")
             return False
 
     async def delete_memory(self, memory_id: str) -> bool:
-        """Elimina una memoria por ID."""
+        """
+        Deletes a memory record by its unique ID.
+        
+        Returns:
+            bool: True if deleted successfully, False otherwise.
+        """
         try:
             self._initialize()
             assert self._collection is not None
             await asyncio.to_thread(self._collection.delete, ids=[memory_id])
-            print(f" 🗑️ [VectorStore] Memoria eliminada (ID: {memory_id[:8]})")
+            # TODO: Replace with proper logger
+            print(f" 🗑️ [VectorStore] Memory deleted (ID: {memory_id[:8]})")
             return True
         except Exception as e:
-            print(f"❌ [VectorStore] Error eliminando memoria: {e}")
+            # TODO: Replace with proper logger
+            print(f"❌ [VectorStore] Error deleting memory: {e}")
             return False
 
     def format_for_context(self, memories: Sequence[Any]) -> str:
-        """Formatea los recuerdos recuperados como contexto auxiliar explícito."""
+        """
+        Formats retrieved memories into an XML-tagged context block for LLM prompt injection.
+        Internal prompt text is kept in Spanish to match agent conversational expectations.
+        """
         if not memories:
             return ""
 
