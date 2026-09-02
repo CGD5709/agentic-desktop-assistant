@@ -1,18 +1,45 @@
-from typing import List, Sequence, Optional, Any
-from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
+from typing import List, Sequence, Optional, Any, Callable, Union
+from langchain_core.messages import BaseMessage, SystemMessage
 from memory.short_term import trim_messages_token_budget
 from memory.models import MemoryItem
+
+# Default token allocation for dynamic dialogue history pruning
+DEFAULT_MAX_DIALOGUE_TOKENS = 3000
+
+
+def _default_memory_formatter(memories: Sequence[Union[MemoryItem, Any]]) -> str:
+    """
+    Formats a sequence of retrieved memory items into standard XML-tagged context.
+    Acts as a fallback formatter when a custom store-specific formatter is not provided.
+
+    Args:
+        memories: Sequence of MemoryItem instances or dictionary representations.
+
+    Returns:
+        str: Formatted context block wrapped in XML tags, or empty string if no items.
+    """
+    if not memories:
+        return ""
+
+    lines = ["<auxiliary_context>", "Información relevante recuperada de sesiones anteriores:"]
+    for mem in memories:
+        text = mem.get("text", "") if isinstance(mem, dict) else getattr(mem, "text", "")
+        if text:
+            lines.append(f"- {text}")
+    lines.append("</auxiliary_context>")
+    return "\n".join(lines)
 
 
 class ContextAssembler:
     """
-    Ensamblador Unificado de Contexto.
-    Combina de forma limpia y estructurada los 4 niveles de memoria:
-    1. System Prompt base
-    2. Perfil estructurado (Nivel 0)
-    3. Memorias a largo plazo semánticas (Nivel 2)
-    4. Resumen de sesión (Nivel 1)
-    5. Historial reciente podado dentro del presupuesto de tokens (Nivel 1)
+    Unified Multi-Tier Context Assembler.
+
+    Consolidates and structures all 4 memory tiers into an optimized message payload for LLM inference:
+    1. Base System Prompt (Persona, operational boundaries, tool rules).
+    2. User Profile Store (Level 0: Deterministic user facts and preferences).
+    3. Long-Term Semantic Memory (Level 2: RAG retrieved cross-session items).
+    4. Session Summary (Level 1: Compact synthesis of previous dialogue turns).
+    5. Pruned Dialogue History (Level 1: Recent turns bounded by token budget).
     """
 
     @staticmethod
@@ -22,41 +49,50 @@ class ContextAssembler:
         profile_context: Optional[str] = None,
         retrieved_memories: Optional[Sequence[Any]] = None,
         session_summary_context: Optional[str] = None,
-        max_dialogue_tokens: int = 3000,
-        memory_store_formatter = None
+        max_dialogue_tokens: int = DEFAULT_MAX_DIALOGUE_TOKENS,
+        memory_store_formatter: Optional[Callable[[Sequence[Any]], str]] = None
     ) -> List[BaseMessage]:
         """
-        Construye la lista final de mensajes ordenada y delimitada para el LLM.
-        """
-        system_sections: List[str] = [base_system_prompt.strip()]
+        Constructs the final, structured sequence of messages for LLM invocation.
 
-        # 1. Perfil de Usuario (Nivel 0)
+        Merges all system prompt layers into a single consolidated SystemMessage header,
+        followed by atomic, token-budgeted conversation history.
+
+        Args:
+            base_system_prompt: Core system prompt containing agent persona and instructions.
+            messages: Full conversation dialogue history to be trimmed.
+            profile_context: Pre-formatted XML-tagged profile block (Level 0).
+            retrieved_memories: Collection of semantic memory items retrieved via RAG (Level 2).
+            session_summary_context: Pre-formatted XML-tagged session summary block (Level 1).
+            max_dialogue_tokens: Maximum token budget allocated for pruned dialogue history.
+            memory_store_formatter: Optional callback function to format retrieved memories.
+
+        Returns:
+            List[BaseMessage]: Ordered message sequence ready for direct model invocation.
+        """
+        system_sections: List[str] = []
+        if base_system_prompt and base_system_prompt.strip():
+            system_sections.append(base_system_prompt.strip())
+
+        # Layer 1: Structured User Profile (Level 0)
         if profile_context and profile_context.strip():
             system_sections.append(profile_context.strip())
 
-        # 2. Recuerdos a Largo Plazo (Nivel 2)
+        # Layer 2: Long-Term Semantic Memories (Level 2)
         if retrieved_memories:
-            if memory_store_formatter:
-                mem_str = memory_store_formatter(retrieved_memories)
-            else:
-                lines = ["<auxiliary_context>", "Información relevante recuperada de sesiones anteriores:"]
-                for mem in retrieved_memories:
-                    text = mem.get("text", "") if isinstance(mem, dict) else getattr(mem, "text", "")
-                    lines.append(f"- {text}")
-                lines.append("</auxiliary_context>")
-                mem_str = "\n".join(lines)
-
-            if mem_str.strip():
+            formatter = memory_store_formatter or _default_memory_formatter
+            mem_str = formatter(retrieved_memories)
+            if mem_str and mem_str.strip():
                 system_sections.append(mem_str.strip())
 
-        # 3. Resumen de Sesión (Nivel 1)
+        # Layer 3: Session Summary Synthesis (Level 1)
         if session_summary_context and session_summary_context.strip():
             system_sections.append(session_summary_context.strip())
 
-        # Consolidamos las secciones del sistema en un único SystemMessage inicial
+        # Consolidate all system sections into a single initial SystemMessage
         full_system_message = SystemMessage(content="\n\n".join(system_sections))
 
-        # 4. Historial reciente podado respetando límites de tokens y atomicidad de tool calls (Nivel 1)
+        # Layer 4: Prune recent dialogue within token budget while preserving tool call atomicity (Level 1)
         trimmed_dialogue = trim_messages_token_budget(
             messages=messages,
             max_tokens=max_dialogue_tokens,
