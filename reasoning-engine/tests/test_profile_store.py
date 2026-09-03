@@ -1,7 +1,7 @@
 import os
 import pytest
 import asyncio
-from memory.profile_store import ProfileStore
+from agent.memory.profile_store import ProfileStore
 
 
 @pytest.mark.asyncio

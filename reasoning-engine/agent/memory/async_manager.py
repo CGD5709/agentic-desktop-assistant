@@ -5,9 +5,10 @@ from typing import List, Dict, Any, Optional, Sequence
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_ollama import ChatOllama
 
-from memory.models import MemoryItem, MemoryCategory, MemoryExtractionPlan, MemoryOperationType
-from memory.vector_store import VectorMemoryStore
-from memory.profile_store import ProfileStore
+from .models import MemoryItem, MemoryCategory, MemoryExtractionPlan, MemoryOperationType
+from .vector_store import VectorMemoryStore
+from .profile_store import ProfileStore
+from ..prompts import EXTRACTION_PROMPT
 
 # Default asynchronous memory manager parameters
 DEFAULT_DEBOUNCE_SECONDS = 45.0
@@ -33,45 +34,7 @@ TRIVIAL_PATTERNS = [
     re.compile(r"^(jaja|jajaja|jeje|xd|lol)[\s!\.]*$", re.IGNORECASE),
 ]
 
-EXTRACTION_PROMPT = """Eres el Gestor de Memoria a Largo Plazo del asistente Jarvis.
-Tu misión es analizar el bloque de conversación reciente entre el Usuario y el Asistente, junto con los recuerdos existentes relacionados, para extraer o actualizar información valiosa y persistente que deba recordarse en futuras sesiones.
-
-CRITERIOS ESTRICTOS:
-1. INFORMACIÓN A CONSERVAR:
-   - Preferencias explícitas o implícitas del usuario (ej: "prefiero respuestas en typescript", "llámame Jose").
-   - Información y rutas de proyectos (ej: "estoy trabajando en el proyecto agentic-desktop-assistant", "la API corre en puerto 8080").
-   - Decisiones técnicas y arquitectónicas estables.
-   - Datos personales o de entorno que el usuario haya revelado y sean útiles.
-
-2. INFORMACIÓN A IGNORAR TOTALMENTE:
-   - Saludos, despedidas, agradecimientos o charlas informales.
-   - Comandos y resultados de herramientas puntuales (ej: "he matado el proceso 1234", "listado de archivos").
-   - Preguntas generales de conocimiento ("¿cuál es la capital de Francia?").
-   - Estados momentáneos o efímeros.
-
-3. TIPOS DE OPERACIONES:
-   - "CREATE": Hecho nuevo relevante que NO está en la lista de recuerdos existentes (dejar "memory_id": null).
-   - "UPDATE": El usuario modifica, contradice o actualiza un recuerdo que YA figura en la lista de recuerdos existentes. Debes incluir obligatoriamente el "memory_id" del recuerdo existente correspondiente y el nuevo "text".
-   - "DELETE": El usuario pide olvidar, descarta o invalida expresamente un recuerdo que figura en la lista. Debes incluir obligatoriamente el "memory_id" del recuerdo a eliminar.
-   - "NOTHING": Conversación trivial, sin datos persistentes o sin cambios relevantes.
-
-FORMATO DE RESPUESTA REQUERIDO:
-Debes responder ÚNICAMENTE con un objeto JSON válido con la clave 'operations', conteniendo una lista de operaciones:
-{
-  "operations": [
-    {
-      "op": "CREATE" | "UPDATE" | "DELETE" | "NOTHING",
-      "memory_id": "id-del-recuerdo-existente o null",
-      "text": "Descripción clara, concisa y atómica del hecho a recordar en tercera persona o formato declarativo (para CREATE o UPDATE)",
-      "category": "PREFERENCE" | "PROJECT" | "SYSTEM_CONFIG" | "DECISION" | "FACT",
-      "importance": 1 a 5,
-      "project": "nombre del proyecto o null",
-      "reason": "breve justificación"
-    }
-  ]
-}
-Si no hay nada relevante que recordar ni actualizar, devuelve: {"operations": [{"op": "NOTHING", "reason": "Conversación trivial o sin cambios persistentes"}]}
-Responde SOLO con el JSON, sin bloques de markdown adicionales."""
+# EXTRACTION_PROMPT is imported from ..prompts and preserved identically.
 
 
 def _clean_json_markdown(raw_text: str) -> str:

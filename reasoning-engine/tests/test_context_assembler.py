@@ -1,6 +1,6 @@
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from memory.context_assembler import ContextAssembler
-from memory.models import MemoryItem, MemoryCategory
+from agent.memory.context_assembler import ContextAssembler
+from agent.memory.models import MemoryItem, MemoryCategory
 
 
 def test_context_assembler_full_pipeline():

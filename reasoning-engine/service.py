@@ -6,7 +6,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AI
 from langchain_core.runnables import RunnableConfig
 
 from agent import builder, AgentState, mq_client, JARVIS_SYSTEM_PROMPT, profile_store, vector_store, memory_manager
-from models import EventEnvelope, ToolExecutionResponsePayload
+from agent.models import EventEnvelope, ToolExecutionResponsePayload
 
 # Variables globales para el servicio
 app_graph = None

@@ -164,7 +164,7 @@ summary_context = session_summarizer.get_summary_context()
 
 # Tier 2: Semantic long-term memories
 retrieved_memories = await vector_store.search_memories(
-    query="Which language should I use for scripts?",
+    query="My preferred language for scripts is python",
     limit=3,
     score_threshold=0.60
 )
@@ -174,7 +174,7 @@ retrieved_memories = await vector_store.search_memories(
 ```python
 # Consolidates all 4 tiers into a single SystemMessage + trimmed history
 assembled_messages = ContextAssembler.assemble(
-    base_system_prompt="You are Jarvis, an intelligent desktop assistant.",
+    base_system_prompt="You are Jarvis, an intelligent desktop assistant...",
     messages=dialogue_history,
     profile_context=profile_context,
     retrieved_memories=retrieved_memories,

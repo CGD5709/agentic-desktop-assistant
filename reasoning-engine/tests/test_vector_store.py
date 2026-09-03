@@ -1,6 +1,6 @@
 import pytest
-from memory.vector_store import VectorMemoryStore
-from memory.models import MemoryItem, MemoryCategory
+from agent.memory.vector_store import VectorMemoryStore
+from agent.memory.models import MemoryItem, MemoryCategory
 
 
 def test_vector_store_format_for_context():

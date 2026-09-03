@@ -7,7 +7,7 @@ from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 from chromadb.api.types import Where
 from langchain_ollama import OllamaEmbeddings
-from memory.models import MemoryItem, MemoryCategory
+from .models import MemoryItem, MemoryCategory
 
 # Default vector store configuration
 DEFAULT_PERSIST_DIR = "./data/chroma_db"

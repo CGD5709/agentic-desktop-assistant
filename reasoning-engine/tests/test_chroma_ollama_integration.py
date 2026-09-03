@@ -1,7 +1,7 @@
 import pytest
 import asyncio
-from memory.vector_store import VectorMemoryStore
-from memory.models import MemoryItem, MemoryCategory
+from agent.memory.vector_store import VectorMemoryStore
+from agent.memory.models import MemoryItem, MemoryCategory
 
 
 @pytest.mark.asyncio

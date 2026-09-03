@@ -1,7 +1,7 @@
 from typing import List, Sequence, Optional, Any, Callable, Union
 from langchain_core.messages import BaseMessage, SystemMessage
-from memory.short_term import trim_messages_token_budget
-from memory.models import MemoryItem
+from .short_term import trim_messages_token_budget
+from .models import MemoryItem
 
 # Default token allocation for dynamic dialogue history pruning
 DEFAULT_MAX_DIALOGUE_TOKENS = 3000

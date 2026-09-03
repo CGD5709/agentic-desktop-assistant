@@ -1,6 +1,6 @@
 import pytest
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
-from memory.short_term import (
+from agent.memory.short_term import (
     trim_messages_token_budget,
     count_message_tokens,
     count_total_tokens,

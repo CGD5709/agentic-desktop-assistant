@@ -1,21 +1,21 @@
-from memory.models import (
+from .models import (
     MemoryCategory,
     MemoryItem,
     MemoryOperationType,
     MemoryOperation,
     MemoryExtractionPlan,
-    UserProfile
+    UserProfile,
 )
-from memory.profile_store import ProfileStore
-from memory.short_term import (
+from .profile_store import ProfileStore
+from .short_term import (
     trim_messages_token_budget,
     count_message_tokens,
     count_total_tokens,
-    SessionSummarizer
+    SessionSummarizer,
 )
-from memory.vector_store import VectorMemoryStore
-from memory.async_manager import AsyncMemoryManager
-from memory.context_assembler import ContextAssembler
+from .vector_store import VectorMemoryStore
+from .async_manager import AsyncMemoryManager
+from .context_assembler import ContextAssembler
 
 __all__ = [
     "MemoryCategory",
@@ -31,5 +31,5 @@ __all__ = [
     "SessionSummarizer",
     "VectorMemoryStore",
     "AsyncMemoryManager",
-    "ContextAssembler"
+    "ContextAssembler",
 ]

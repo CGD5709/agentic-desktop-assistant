@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
 from langchain_core.messages import AIMessage
-from memory.async_manager import AsyncMemoryManager
-from memory.models import MemoryCategory, MemoryItem
+from agent.memory.async_manager import AsyncMemoryManager
+from agent.memory.models import MemoryCategory, MemoryItem
 
 
 def test_trivial_filter_heuristics():

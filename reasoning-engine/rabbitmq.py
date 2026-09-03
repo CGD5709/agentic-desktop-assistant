@@ -3,7 +3,7 @@ import json
 import aio_pika
 import aio_pika.abc
 from typing import Callable, Awaitable, Dict, Any, Optional
-from models import EventEnvelope
+from agent.models import EventEnvelope
 class RabbitMQClient:
     """
     Asynchronous RabbitMQ client implementing event broadcasting and the Async RPC pattern.
