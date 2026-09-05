@@ -4,21 +4,19 @@ Chat node responsible for conversational dialogue with 4-tier context assembly.
 from typing import Any, Dict
 from langchain_core.language_models.chat_models import BaseChatModel
 
+from ..memory.async_manager import AsyncMemoryManager
+from ..memory.profile_store import ProfileStore
+from ..memory.short_term import SessionSummarizer
+from ..memory.vector_store import VectorMemoryStore
 from ..models import AgentState
 from ..prompts import JARVIS_SYSTEM_PROMPT
-from ..utils import extract_last_human_text
-from ..memory.profile_store import ProfileStore
-from ..memory.vector_store import VectorMemoryStore
-from ..memory.short_term import SessionSummarizer
-from ..memory.async_manager import AsyncMemoryManager
-from ..memory.context_assembler import ContextAssembler
+from .base import BaseAgentNode, DEFAULT_MAX_DIALOGUE_TOKENS
 
 
-class ChatNode:
+class ChatNode(BaseAgentNode):
     """
     Handles general conversational exchanges for the Jarvis assistant.
-    Assembles a consolidated 4-tier memory context (system persona, profile,
-    retrieved RAG memories, session summary, and trimmed history).
+    Inherits multi-tier memory assembly and asynchronous turn recording from BaseAgentNode.
     """
 
     def __init__(
@@ -29,63 +27,48 @@ class ChatNode:
         vector_store: VectorMemoryStore,
         memory_manager: AsyncMemoryManager,
         system_prompt: str = JARVIS_SYSTEM_PROMPT,
-        max_dialogue_tokens: int = 3000,
+        max_dialogue_tokens: int = DEFAULT_MAX_DIALOGUE_TOKENS,
     ) -> None:
         """
-        Initializes the chat node with injected dependencies.
+        Initialize the chat node with required memory and LLM dependencies.
 
         Args:
-            llm: Language model used for generation.
-            profile_store: Relational profile storage (Tier 0).
-            session_summarizer: Working memory summarizer (Tier 1).
-            vector_store: Semantic vector memory store (Tier 2).
-            memory_manager: Background asynchronous memory manager (Tier 3).
+            llm: Language model used for conversational generation.
+            profile_store: Relational profile storage (Level 0).
+            session_summarizer: Working memory summarizer (Level 1).
+            vector_store: Semantic vector memory store (Level 2).
+            memory_manager: Background asynchronous memory manager (Level 3).
             system_prompt: Base persona system prompt.
             max_dialogue_tokens: Maximum token budget for conversational history.
         """
-        self._llm = llm
-        self._profile_store = profile_store
-        self._session_summarizer = session_summarizer
-        self._vector_store = vector_store
-        self._memory_manager = memory_manager
-        self._system_prompt = system_prompt
-        self._max_dialogue_tokens = max_dialogue_tokens
+        super().__init__(
+            llm=llm,
+            profile_store=profile_store,
+            session_summarizer=session_summarizer,
+            vector_store=vector_store,
+            memory_manager=memory_manager,
+            system_prompt=system_prompt,
+            max_dialogue_tokens=max_dialogue_tokens,
+        )
 
     async def __call__(self, state: AgentState) -> Dict[str, Any]:
         """
-        Executes conversational turn generation with assembled memory context.
+        Execute conversational turn generation with assembled memory context.
 
         Args:
             state: Current agent state dictionary.
 
         Returns:
-            Dictionary with generated messages list.
+            Dictionary containing the generated assistant response message list.
         """
         messages = list(state.get("messages", []))
         retrieved_memories = state.get("retrieved_memories") or []
 
-        # Level 0: Persistent Profile
-        profile_ctx = await self._profile_store.format_for_context()
-        # Level 1: Working Session Summary
-        summary_ctx = self._session_summarizer.get_summary_context()
-
-        # Assemble clean 4-tier context
-        assembled_messages = ContextAssembler.assemble(
-            base_system_prompt=self._system_prompt,
-            messages=messages,
-            profile_context=profile_ctx,
-            retrieved_memories=retrieved_memories,
-            session_summary_context=summary_ctx,
-            max_dialogue_tokens=self._max_dialogue_tokens,
-            memory_store_formatter=self._vector_store.format_for_context,
-        )
-
+        assembled_messages = await self._assemble_context(messages, retrieved_memories)
         response = await self._llm.ainvoke(assembled_messages)
-
-        # Record turns in background for asynchronous memory extraction (Level 3)
-        last_human_text = extract_last_human_text(messages)
-        assistant_text = response.content if isinstance(response.content, str) else ""
-        self._memory_manager.record_turn(role="user", content=last_human_text)
-        self._memory_manager.record_turn(role="assistant", content=assistant_text)
+        self._record_turn(messages, response)
 
         return {"messages": [response]}
+
+
+__all__ = ["ChatNode"]

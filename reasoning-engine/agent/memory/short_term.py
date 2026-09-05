@@ -144,6 +144,8 @@ def trim_messages_token_budget(
             selected_blocks.append(block)
             accumulated_tokens += block_tokens
         else:
+            # TODO: Collect discarded historical message blocks to feed an incremental summarization
+            # pipeline updating SessionSummarizer instead of silently dropping historical context.
             break
 
     selected_blocks.reverse()
@@ -178,6 +180,13 @@ class SessionSummarizer:
     State holder for the current session's macro context.
     Stores an incremental summary of discarded historical messages to prevent context loss.
     """
+
+    # TODO: Implement active dialogue summarization service.
+    # Currently, SessionSummarizer provides the passive state container and XML context injection,
+    # but relies on external manual calls to update_summary(). An automated summarization routine
+    # should be integrated (either synchronously when trim_messages_token_budget evicts turns,
+    # or asynchronously via AsyncMemoryManager during idle periods) using an LLM to distill
+    # discarded dialogue into self.summary.
 
     def __init__(self) -> None:
         self.summary: Optional[str] = None

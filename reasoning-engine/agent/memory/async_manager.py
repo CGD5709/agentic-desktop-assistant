@@ -15,6 +15,10 @@ DEFAULT_DEBOUNCE_SECONDS = 45.0
 DEFAULT_MODEL_NAME = "qwen2.5:7b"
 DEFAULT_TEMPERATURE = 0.1
 
+# Context window capacity for extraction LLM. Ollama defaults to 2048 if unspecified,
+# which risks silently truncating larger turn batches, EXTRACTION_PROMPT, and candidate memories.
+DEFAULT_NUM_CTX = 8192
+
 # Candidate retrieval and deduplication thresholds
 CANDIDATE_SEARCH_LIMIT = 5
 CANDIDATE_SCORE_THRESHOLD = 0.50
@@ -73,7 +77,8 @@ class AsyncMemoryManager:
         profile_store: ProfileStore,
         model_name: str = DEFAULT_MODEL_NAME,
         debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS,
-        temperature: float = DEFAULT_TEMPERATURE
+        temperature: float = DEFAULT_TEMPERATURE,
+        num_ctx: int = DEFAULT_NUM_CTX,
     ) -> None:
         """
         Initializes the asynchronous memory manager.
@@ -84,10 +89,15 @@ class AsyncMemoryManager:
             model_name: Ollama model identifier for extraction tasks.
             debounce_seconds: Inactivity delay before processing accumulated dialogue.
             temperature: Sampling temperature for deterministic extraction.
+            num_ctx: Context window size for Ollama inference to avoid silent prompt truncation.
         """
         self.vector_store = vector_store
         self.profile_store = profile_store
-        self.llm = ChatOllama(model=model_name, temperature=temperature)
+        self.llm = ChatOllama(
+            model=model_name,
+            temperature=temperature,
+            num_ctx=num_ctx,
+        )
         self.debounce_seconds = debounce_seconds
         
         self._pending_turns: List[Dict[str, str]] = []

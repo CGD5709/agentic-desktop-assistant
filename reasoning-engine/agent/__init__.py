@@ -1,41 +1,45 @@
 """
-Agent package exposing the orchestrator graph, memory components, and messaging clients.
+Agent package exposing the orchestrator runtime, graph builder, data models, and prompts.
 """
 from .agent import (
-    builder,
-    mq_client,
-    profile_store,
-    vector_store,
-    memory_manager,
-    session_summarizer,
-    dynamic_tools,
-    llm,
+    DEFAULT_CHROMA_DIR,
+    DEFAULT_DEBOUNCE_SECONDS,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_LLM_NUM_CTX,
+    DEFAULT_LLM_TEMPERATURE,
+    DEFAULT_MAX_DIALOGUE_TOKENS,
+    DEFAULT_PROFILE_DB_PATH,
+    AgentRuntime,
+    create_agent_graph,
+    create_agent_runtime,
 )
 from .models import (
     AgentState,
-    EventType,
+    EventEnvelope,
     EventMetadata,
+    EventType,
     ToolExecutionRequestPayload,
     ToolExecutionResponsePayload,
-    EventEnvelope,
 )
 from .prompts import (
+    COMMAND_PROMPT,
+    EXTRACTION_PROMPT,
     JARVIS_SYSTEM_PROMPT,
     ROUTER_PROMPT,
-    COMMAND_PROMPT,
     SUMMARIZE_PROMPT,
-    EXTRACTION_PROMPT,
 )
 
 __all__ = [
-    "builder",
-    "mq_client",
-    "profile_store",
-    "vector_store",
-    "memory_manager",
-    "session_summarizer",
-    "dynamic_tools",
-    "llm",
+    "AgentRuntime",
+    "create_agent_graph",
+    "create_agent_runtime",
+    "DEFAULT_PROFILE_DB_PATH",
+    "DEFAULT_CHROMA_DIR",
+    "DEFAULT_DEBOUNCE_SECONDS",
+    "DEFAULT_LLM_MODEL",
+    "DEFAULT_LLM_TEMPERATURE",
+    "DEFAULT_LLM_NUM_CTX",
+    "DEFAULT_MAX_DIALOGUE_TOKENS",
     "AgentState",
     "EventType",
     "EventMetadata",

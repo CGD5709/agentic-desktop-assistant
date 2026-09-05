@@ -264,3 +264,102 @@ async def test_summarize_node():
     assert len(result["messages"]) == 1
     assert "CPU está al 15%" in result["messages"][0].content
     assert memory_manager_mock.record_turn.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_action_node_validation_and_null_safety():
+    """Verifies that ActionNode raises TypeError for non-AIMessage and handles None RPC response gracefully."""
+    mq_mock = AsyncMock()
+    action = ActionNode(mq_client=mq_mock)
+
+    # Empty messages state returns empty list
+    assert await action({"messages": []}) == {"messages": []}
+
+    # Non-AIMessage raises TypeError
+    with pytest.raises(TypeError, match="Expected last message in state to be an AIMessage"):
+        await action({"messages": [HumanMessage(content="run command")]})
+
+    # Null response from RPC returns error tool message without crashing
+    mq_mock.send_and_wait.return_value = None
+    state: AgentState = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "test_tool", "args": {}, "id": "tc-null"}],
+            )
+        ]
+    }
+    result = await action(state)
+    assert len(result["messages"]) == 1
+    assert "Error: No response received" in result["messages"][0].content
+
+
+def test_utils_multipart_dict_content():
+    """Verifies extract_last_human_text supports multipart list containing dict blocks."""
+    msgs = [
+        HumanMessage(content=[{"type": "text", "text": "hello"}, {"type": "text", "text": "world"}])
+    ]
+    assert extract_last_human_text(msgs) == "hello world"
+
+
+def test_agent_graph_factory():
+    """Verifies create_agent_graph builds a valid LangGraph StateGraph instance."""
+    from agent.agent import create_agent_graph
+    from agent.nodes import NodeName
+
+    router = MagicMock()
+    chat = MagicMock()
+    command = MagicMock()
+    action = MagicMock()
+    summarize = MagicMock()
+
+    graph = create_agent_graph(
+        router_node=router,
+        chat_node=chat,
+        command_node=command,
+        action_node=action,
+        summarize_node=summarize,
+    )
+
+    nodes = graph.nodes
+    assert NodeName.ROUTER.value in nodes
+    assert NodeName.CHAT.value in nodes
+    assert NodeName.COMMAND.value in nodes
+    assert NodeName.ACTION.value in nodes
+    assert NodeName.SUMMARIZE.value in nodes
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_factory_and_lifecycle(tmp_path):
+    """Verifies create_agent_runtime builds an isolated container and handles lifecycle without errors."""
+    from agent.agent import create_agent_runtime, AgentRuntime
+
+    mq_mock = AsyncMock()
+    llm_mock = AsyncMock()
+    db_path = str(tmp_path / "test_profile.db")
+    chroma_path = str(tmp_path / "test_chroma")
+
+    runtime = create_agent_runtime(
+        profile_db_path=db_path,
+        chroma_dir=chroma_path,
+        mq_client=mq_mock,
+        llm=llm_mock,
+    )
+
+    assert isinstance(runtime, AgentRuntime)
+    assert runtime.graph is not None
+    assert runtime.dynamic_tools == []
+
+    # Mock vector store and memory manager to isolate lifecycle test
+    runtime.vector_store.initialize = AsyncMock()
+    runtime.memory_manager.flush_and_close = AsyncMock()
+
+    await runtime.initialize()
+    assert mq_mock.connect.called
+    assert runtime.vector_store.initialize.called
+
+    await runtime.close()
+    assert mq_mock.close.called
+    assert runtime.memory_manager.flush_and_close.called
+
+

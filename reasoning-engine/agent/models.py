@@ -43,6 +43,9 @@ class EventEnvelope(BaseModel):
 
 class AgentState(TypedDict, total=False):
     """State schema for the LangGraph orchestrator graph."""
+
+    # operator.add acts as a state reducer: it instructs LangGraph to append 
+    # new messages to the existing sequence rather than overwriting the list.
     messages: Annotated[Sequence[BaseMessage], operator.add]
     intent: Optional[str]
     correlation_id: Optional[str]

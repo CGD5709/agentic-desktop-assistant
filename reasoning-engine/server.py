@@ -5,12 +5,14 @@ import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-from agent import builder, AgentState, mq_client, profile_store, vector_store, memory_manager, dynamic_tools
+from agent import AgentState, create_agent_runtime
 
+# Runtime container instance
+runtime = create_agent_runtime()
 
 # Configuración del hilo persistente de LangGraph
 config: RunnableConfig = {"configurable": {"thread_id": "sesion-produccion"}}
@@ -27,28 +29,28 @@ def convert_execution_tools_to_openai_format(raw_tools: list) -> list:
             "function": {
                 "name": tool.get("name", ""),
                 "description": tool.get("description", ""),
-                "parameters": tool.get("parameters", {"type": "object", "properties": {}})
-            }
+                "parameters": tool.get("parameters", {"type": "object", "properties": {}}),
+            },
         }
         converted.append(openai_tool)
     return converted
 
 
-async def handle_rabbitmq_message(raw_body: str, routing_key: str):
+async def handle_rabbitmq_message(raw_body: str, routing_key: str) -> None:
     """Callback de RabbitMQ para capturar descubrimiento de herramientas de execution-service."""
     if routing_key == "system.discovery.execution_service":
         try:
             data = json.loads(raw_body)
             tools_list = data.get("payload", {}).get("tools", [])
-            dynamic_tools.clear()
+            runtime.dynamic_tools.clear()
             converted_tools = convert_execution_tools_to_openai_format(tools_list)
-            dynamic_tools.extend(converted_tools)
+            runtime.dynamic_tools.extend(converted_tools)
             nombres = [t["function"]["name"] for t in converted_tools]
             print(f"\n📡 [System Discovery] Herramientas recibidas de execution-service: {nombres}")
             # Notificamos a los clientes WebSocket conectados sobre las nuevas herramientas
             await ws_manager.broadcast({
                 "type": "tools_updated",
-                "tools": [t["function"]["name"] for t in dynamic_tools]
+                "tools": [t["function"]["name"] for t in runtime.dynamic_tools],
             })
         except Exception as e:
             print(f"\n❌ Error procesando el manifiesto de herramientas: {e}")
@@ -56,23 +58,24 @@ async def handle_rabbitmq_message(raw_body: str, routing_key: str):
 
 class WebSocketConnectionManager:
     """Administra las conexiones de clientes WebSocket activos."""
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.active_connections: list[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self.active_connections.append(websocket)
         print(f"🔌 [WebSocket] Cliente conectado. Activos: {len(self.active_connections)}")
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
             print(f"🔌 [WebSocket] Cliente desconectado. Activos: {len(self.active_connections)}")
 
-    async def send_personal(self, message: dict, websocket: WebSocket):
+    async def send_personal(self, message: dict, websocket: WebSocket) -> None:
         await websocket.send_text(json.dumps(message))
 
-    async def broadcast(self, message: dict):
+    async def broadcast(self, message: dict) -> None:
         dead_connections = []
         for connection in self.active_connections:
             try:
@@ -90,25 +93,21 @@ ws_manager = WebSocketConnectionManager()
 async def lifespan(app: FastAPI):
     global app_graph, memory_saver_ctx
     print("🔌 [Server] Iniciando Motor de Razonamiento y Servicios...")
-    await mq_client.connect()
-    await profile_store.initialize()
-    await vector_store.initialize()
+    await runtime.initialize()
 
     # Consumidor de RabbitMQ en segundo plano
-    asyncio.create_task(mq_client.start_consuming(handle_rabbitmq_message))
+    asyncio.create_task(runtime.mq_client.start_consuming(handle_rabbitmq_message))
 
     # Inicialización del Checkpointer de SQLite
     memory_saver_ctx = AsyncSqliteSaver.from_conn_string("agent_memory.db")
     memory_saver = await memory_saver_ctx.__aenter__()
-    app_graph = builder.compile(checkpointer=memory_saver)
+    app_graph = runtime.graph.compile(checkpointer=memory_saver)
     print("✅ [Server] LangGraph Engine & WebSockets Listos en http://0.0.0.0:8000")
 
     yield
 
     print("💾 [Server] Cerrando servicios de memoria y conexiones...")
-    await memory_manager.flush_and_close()
-    await profile_store.close()
-    await mq_client.close()
+    await runtime.close()
     if memory_saver_ctx:
         await memory_saver_ctx.__aexit__(None, None, None)
     print("👋 [Server] Servidor detenido limpiamente.")
@@ -130,8 +129,8 @@ async def health_check():
     return {
         "status": "ONLINE",
         "engine": "JARVIS Qwen 2.5 7B",
-        "tools_count": len(dynamic_tools),
-        "tools": [t["function"]["name"] for t in dynamic_tools]
+        "tools_count": len(runtime.dynamic_tools),
+        "tools": [t["function"]["name"] for t in runtime.dynamic_tools],
     }
 
 
@@ -142,7 +141,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.send_personal({
         "type": "connected",
         "message": "Sistemas de J.A.R.V.I.S en línea y listos para interactuar.",
-        "tools": [t["function"]["name"] for t in dynamic_tools]
+        "tools": [t["function"]["name"] for t in runtime.dynamic_tools],
     }, websocket)
 
     try:
@@ -169,13 +168,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Avisamos al frontend que Jarvis está pensando
                 await ws_manager.send_personal({
                     "type": "status",
-                    "state": "THINKING"
+                    "state": "THINKING",
                 }, websocket)
 
                 try:
                     state: AgentState = {
                         "messages": [HumanMessage(content=user_text)],
-                        "correlation_id": str(uuid.uuid4())
+                        "correlation_id": str(uuid.uuid4()),
                     }
 
                     # Ejecución en el Grafo de LangGraph
@@ -188,19 +187,19 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Enviamos la respuesta limpia al frontend
                     await ws_manager.send_personal({
                         "type": "assistant_message",
-                        "content": assistant_text
+                        "content": assistant_text,
                     }, websocket)
 
                 except Exception as err:
                     print(f"❌ Error en ejecución de grafo: {err}")
                     await ws_manager.send_personal({
                         "type": "assistant_message",
-                        "content": f"He experimentado una anomalía en mi núcleo de procesamiento: {err}"
+                        "content": f"He experimentado una anomalía en mi núcleo de procesamiento: {err}",
                     }, websocket)
                 finally:
                     await ws_manager.send_personal({
                         "type": "status",
-                        "state": "IDLE"
+                        "state": "IDLE",
                     }, websocket)
 
     except WebSocketDisconnect:
