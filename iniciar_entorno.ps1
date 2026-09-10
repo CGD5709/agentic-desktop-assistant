@@ -18,7 +18,7 @@ Write-Host "`nTodo listo. Para ejecutar el sistema completo:" -ForegroundColor C
 Write-Host "1. En una terminal (Backend WebSockets):" -ForegroundColor Yellow
 Write-Host "   cd reasoning-engine"
 Write-Host "   .\.venv\Scripts\Activate.ps1"
-Write-Host "   python server.py"
+Write-Host "   python main.py"
 Write-Host "`n2. En otra terminal (Frontend Desktop Client):" -ForegroundColor Yellow
 Write-Host "   cd desktop-client"
 Write-Host "   npm run dev"

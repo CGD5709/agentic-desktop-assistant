@@ -95,7 +95,7 @@ class AgentRuntime:
 ### Architecture Benefits
 * **Zero Import-Time Side Effects**: Importing `agent` or its submodules executes zero network calls, creates no SQLite files, and allocates no background worker threads.
 * **Pure Testability & Isolation**: Tests can instantiate completely isolated runtimes with in-memory databases (`:memory:`), mock clients, and isolated ChromaDB directories without cross-test contamination.
-* **Explicit Lifecycle Management**: Top-level entrypoints (`server.py`, `service.py`, `main.py`) manage connection startup and graceful shutdown via explicit `runtime.initialize()` and `runtime.close()` calls (e.g., inside FastAPI's `lifespan`).
+* **Explicit Lifecycle Management**: Top-level entrypoint (`main.py`) manages connection startup and graceful shutdown via explicit `runtime.initialize()` and `runtime.close()` calls (e.g., inside FastAPI's `lifespan`).
 * **Context Window Budgeting (`DEFAULT_LLM_NUM_CTX = 8192`)**: Local Ollama instances default to a 2,048-token context window if unspecified. The runtime explicitly configures `num_ctx=8192`, preventing silent prompt truncation when combining the system persona, Level-0 profile facts, Level-2 RAG memories, and the 3,000-token dialogue budget.
 
 ---
@@ -181,7 +181,7 @@ Both functions leverage strongly typed `NodeName(str, Enum)` and `Intent(str, En
 
 ## 7. Event-Driven Messaging Contracts (`models.py`)
 
-Inter-service communication between the Python Reasoning Engine and the Java Execution Service is governed by strict Pydantic schemas in [models.py](../agent/models.py):
+Inter-service communication between the Python Reasoning Engine and the Java Execution Service is governed by strict Pydantic schemas in [models.py](./models.py):
 
 ```
 ┌────────────────────────────────────────────────────────┐

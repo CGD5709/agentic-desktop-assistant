@@ -167,3 +167,31 @@ async def test_rabbitmq_message_handler_factory():
     assert len(mock_runtime.dynamic_tools) == 1
     assert mock_runtime.dynamic_tools[0]["function"]["name"] == "open_application"
     assert mock_ws_manager.broadcast.called
+
+
+def test_cors_allowed_and_blocked_origins():
+    """Verify CORS middleware permits configured origins and rejects unauthorized origins."""
+    client = TestClient(app)
+
+    # Allowed origin (desktop-client on port 5173)
+    res_allowed = client.get("/health", headers={"Origin": "http://localhost:5173"})
+    assert res_allowed.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    assert res_allowed.headers.get("access-control-allow-credentials") == "true"
+
+    # Unauthorized origin
+    res_blocked = client.get("/health", headers={"Origin": "http://malicious-website.com"})
+    assert res_blocked.headers.get("access-control-allow-origin") is None
+
+
+def test_settings_cors_origins_parsing():
+    """Verify Settings parses comma-separated strings and JSON strings correctly."""
+    from config import Settings
+
+    # Comma-separated string
+    s1 = Settings(ALLOWED_ORIGINS="http://localhost:3000, http://localhost:5173")
+    assert s1.ALLOWED_ORIGINS == ["http://localhost:3000", "http://localhost:5173"]
+
+    # JSON array string
+    s2 = Settings(ALLOWED_ORIGINS='["http://example.com"]')
+    assert s2.ALLOWED_ORIGINS == ["http://example.com"]
+

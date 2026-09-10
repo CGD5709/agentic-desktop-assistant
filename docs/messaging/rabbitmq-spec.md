@@ -152,10 +152,10 @@ To guarantee interoperability between the reasoning engine and the execution ser
 ### Case Mapping (snake_case vs camelCase)
 - The **Reasoning Engine** uses standard `snake_case` for internal variables.
 - The **Execution Service** and the public API specification use `camelCase`.
-- **Solution**: We define aliases in Pydantic models ([models.py](../../reasoning-engine/models.py)) combined with serialization using `by_alias=True` in Python.
+- **Solution**: We define aliases in Pydantic models ([models.py](../../reasoning-engine/agent/models.py)) combined with serialization using `by_alias=True` in Python.
 
 ```python
-# Definition in models.py with aliases
+# Definition in agent/models.py with aliases
 class EventMetadata(BaseModel):
     event_id: str = Field(..., alias="eventId")
     correlation_id: str = Field(..., alias="correlationId")
