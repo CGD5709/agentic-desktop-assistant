@@ -7,10 +7,18 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+/**
+ * Inspects network ports and associated process owners on Windows using netstat.
+ */
 @Component
 public class PortScannerTool implements AgentTool {
+
+    public static final int MIN_PORT = 1;
+    public static final int MAX_PORT = 65535;
+    private static final long PROCESS_TIMEOUT_SECONDS = 15L;
 
     @Override
     public String getName() {
@@ -43,27 +51,41 @@ public class PortScannerTool implements AgentTool {
             throw new IllegalArgumentException("Falta el parámetro obligatorio 'puerto'.");
         }
 
-        // --- PARSEO DEFENSIVO ---
         Object puertoObj = arguments.get("puerto");
         int puerto;
-        if (puertoObj instanceof Number) {
-            puerto = ((Number) puertoObj).intValue();
-        } else if (puertoObj instanceof String) {
-            puerto = Integer.parseInt((String) puertoObj);
+        if (puertoObj instanceof Number number) {
+            puerto = number.intValue();
+        } else if (puertoObj instanceof String puertoStr && !puertoStr.isBlank()) {
+            try {
+                puerto = Integer.parseInt(puertoStr.trim());
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("El puerto proporcionado no tiene un formato numérico válido: " + puertoObj);
+            }
         } else {
             throw new IllegalArgumentException("El puerto proporcionado no tiene un formato válido: " + puertoObj);
         }
-        // ------------------------
 
-        System.out.println("   🔍 Escaneando puerto: " + puerto);
+        if (puerto < MIN_PORT || puerto > MAX_PORT) {
+            throw new IllegalArgumentException("El puerto debe encontrarse en el rango de " + MIN_PORT + " a " + MAX_PORT + ": " + puerto);
+        }
+
+        // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
+        System.out.println("[PortScannerTool] Scanning network status for port: " + puerto);
 
         ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", "netstat -ano | findstr :" + puerto);
         pb.redirectErrorStream(true);
         Process process = pb.start();
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        String output = reader.lines().collect(Collectors.joining("\n"));
-        process.waitFor();
+        String output;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            output = reader.lines().collect(Collectors.joining("\n"));
+        }
+
+        boolean completed = process.waitFor(PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!completed) {
+            process.destroyForcibly();
+            return "Operación cancelada: el escaneo de puertos superó el tiempo límite (" + PROCESS_TIMEOUT_SECONDS + "s).";
+        }
 
         if (output.trim().isEmpty()) {
             return "No hay ningún proceso escuchando en el puerto " + puerto + ". El puerto está libre.";

@@ -5,12 +5,20 @@ import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+/**
+ * Analyzes active Windows processes ordered by memory consumption via PowerShell.
+ */
 @Component
 public class ProcessAnalyzerTool implements AgentTool {
+
+    public static final int DEFAULT_PROCESS_LIMIT = 10;
+    public static final int MIN_PROCESS_LIMIT = 1;
+    public static final int MAX_PROCESS_LIMIT = 100;
+    private static final long PROCESS_TIMEOUT_SECONDS = 15L;
 
     @Override
     public String getName() {
@@ -19,7 +27,6 @@ public class ProcessAnalyzerTool implements AgentTool {
 
     @Override
     public ToolDefinition getDefinition() {
-        // Definimos un parámetro opcional para que la IA decida cuántos procesos quiere ver
         Map<String, Object> limitProperty = Map.of(
                 "type", "integer",
                 "description", "Número máximo de procesos a listar (por defecto suele ser 10)."
@@ -28,7 +35,6 @@ public class ProcessAnalyzerTool implements AgentTool {
         Map<String, Object> parametersSchema = Map.of(
                 "type", "object",
                 "properties", Map.of("limite_procesos", limitProperty)
-                // No lo ponemos en "required", así es opcional para la IA
         );
 
         return new ToolDefinition(
@@ -38,40 +44,50 @@ public class ProcessAnalyzerTool implements AgentTool {
         );
     }
 
-   @Override
+    @Override
     public String execute(Map<String, Object> arguments) throws Exception {
-        System.out.println("   📊 Ejecutando diagnóstico de RAM...");
+        // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
+        System.out.println("[ProcessAnalyzerTool] Executing memory diagnostic query...");
 
-        int limite = 10;
-        
-        // --- PARSEO DEFENSIVO ---
+        int limit = DEFAULT_PROCESS_LIMIT;
+
         if (arguments != null && arguments.containsKey("limite_procesos")) {
-            Object limiteObj = arguments.get("limite_procesos");
-            if (limiteObj instanceof Number) {
-                limite = ((Number) limiteObj).intValue();
-            } else if (limiteObj instanceof String) {
+            Object limitObj = arguments.get("limite_procesos");
+            if (limitObj instanceof Number number) {
+                limit = number.intValue();
+            } else if (limitObj instanceof String limitStr && !limitStr.isBlank()) {
                 try {
-                    limite = Integer.parseInt((String) limiteObj);
+                    limit = Integer.parseInt(limitStr.trim());
                 } catch (NumberFormatException e) {
-                    System.out.println("   ⚠️ Aviso: La IA envió un límite no numérico ('" + limiteObj + "'). Usando 10 por defecto.");
+                    // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
+                    System.out.println("[ProcessAnalyzerTool] Warning: Received non-numeric process limit ('" + limitObj + "'). Falling back to default: " + DEFAULT_PROCESS_LIMIT);
                 }
             }
         }
-        // -------------------------
+
+        limit = Math.max(MIN_PROCESS_LIMIT, Math.min(limit, MAX_PROCESS_LIMIT));
 
         String psCommand = String.format(
                 "Get-Process | Sort-Object WS -Descending | Select-Object -First %d Name, Id, @{n='Memoria(MB)';e={[math]::round($_.WS/1MB,2)}} | Format-Table -AutoSize", 
-                limite
+                limit
         );
 
         ProcessBuilder pb = new ProcessBuilder("powershell.exe", "-NoProfile", "-Command", psCommand);
         pb.redirectErrorStream(true);
         Process process = pb.start();
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        String output = reader.lines().collect(Collectors.joining("\n"));
-        
-        int exitCode = process.waitFor();
+        String output;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            output = reader.lines().collect(Collectors.joining("\n"));
+        }
+
+        boolean completed = process.waitFor(PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        if (!completed) {
+            process.destroyForcibly();
+            return "Operación cancelada: el análisis de rendimiento superó el tiempo límite (" + PROCESS_TIMEOUT_SECONDS + "s).";
+        }
+
+        int exitCode = process.exitValue();
         if (exitCode != 0) {
             throw new RuntimeException("El comando falló con código: " + exitCode + " Salida: " + output);
         }

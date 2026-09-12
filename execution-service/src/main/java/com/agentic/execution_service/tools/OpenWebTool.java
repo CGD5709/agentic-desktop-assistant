@@ -3,12 +3,21 @@ package com.agentic.execution_service.tools;
 import com.agentic.execution_service.models.ToolDefinition;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
-// ¡Clave! @Component le dice a Spring que registre esta herramienta automáticamente
+/**
+ * Opens URLs in the default desktop browser with URI validation and shell injection defense.
+ */
 @Component
 public class OpenWebTool implements AgentTool {
+
+    private static final Set<String> ALLOWED_SCHEMES = Set.of("http", "https");
+    private static final Pattern DISALLOWED_SHELL_CHARS = Pattern.compile("[&|<>;\"^%\r\n]");
 
     @Override
     public String getName() {
@@ -39,12 +48,42 @@ public class OpenWebTool implements AgentTool {
 
     @Override
     public String execute(Map<String, Object> arguments) throws Exception {
-        String url = (String) arguments.get("url");
-        System.out.println("   🌐 Abriendo navegador en: " + url);
-        
-        ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", "start", url);
+        if (arguments == null || !arguments.containsKey("url")) {
+            throw new IllegalArgumentException("Falta el parámetro obligatorio 'url'.");
+        }
+
+        Object urlObj = arguments.get("url");
+        if (urlObj == null) {
+            throw new IllegalArgumentException("El parámetro 'url' no puede ser nulo.");
+        }
+
+        String rawUrl = String.valueOf(urlObj).trim();
+        if (rawUrl.isBlank()) {
+            throw new IllegalArgumentException("El parámetro 'url' no puede estar vacío.");
+        }
+
+        if (DISALLOWED_SHELL_CHARS.matcher(rawUrl).find()) {
+            throw new IllegalArgumentException("La URL contiene caracteres no permitidos o potencialmente inseguros.");
+        }
+
+        URI parsedUri;
+        try {
+            parsedUri = new URI(rawUrl);
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("La URL proporcionada no tiene una sintaxis válida: " + e.getMessage(), e);
+        }
+
+        String scheme = parsedUri.getScheme();
+        if (scheme == null || !ALLOWED_SCHEMES.contains(scheme.toLowerCase())) {
+            throw new IllegalArgumentException("Protocolo no permitido o URL inválida. Debe comenzar por http:// o https://");
+        }
+
+        // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
+        System.out.println("[OpenWebTool] Launching default browser at URL: " + rawUrl);
+
+        ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", "start", "\"\"", rawUrl);
         pb.start();
-        
-        return "Se ha abierto el navegador correctamente en la URL: " + url;
+
+        return "Se ha abierto el navegador correctamente en la URL: " + rawUrl;
     }
 }

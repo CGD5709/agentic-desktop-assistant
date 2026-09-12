@@ -1,12 +1,18 @@
 package com.agentic.execution_service.config;
 
-import org.springframework.amqp.core.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
+/**
+ * RabbitMQ infrastructure configuration for inter-service communication with the reasoning engine.
+ */
 @Configuration
 public class RabbitMQConfig {
 
@@ -14,28 +20,28 @@ public class RabbitMQConfig {
     public static final String QUEUE_NAME = "execution_service_queue";
     public static final String ROUTING_KEY = "tool.request.*";
 
-    // 1. Declaramos el Exchange (por si Java arranca antes que Python)
     @Bean
     public TopicExchange agentEventsExchange() {
         return new TopicExchange(EXCHANGE_NAME);
     }
 
-    // 2. Declaramos la cola donde Java recibirá las peticiones
     @Bean
     public Queue executionQueue() {
-        return new Queue(QUEUE_NAME, true); // true = durable
+        return new Queue(QUEUE_NAME, true);
     }
 
-    // 3. Vinculamos la cola al Exchange con el routing key
     @Bean
     public Binding binding(Queue executionQueue, TopicExchange agentEventsExchange) {
         return BindingBuilder.bind(executionQueue).to(agentEventsExchange).with(ROUTING_KEY);
     }
 
-    // 4. Inyectamos Jackson para convertir automáticamente JSON <-> Objetos Java
-   @Bean
-    public MessageConverter jsonMessageConverter() {
-        ObjectMapper mapper = new ObjectMapper();
-        return new Jackson2JsonMessageConverter(mapper);
+    @Bean
+    public ObjectMapper objectMapper() {
+        return new ObjectMapper();
+    }
+
+    @Bean
+    public MessageConverter jsonMessageConverter(ObjectMapper objectMapper) {
+        return new Jackson2JsonMessageConverter(objectMapper);
     }
 }

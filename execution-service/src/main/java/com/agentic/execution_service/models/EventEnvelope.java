@@ -1,8 +1,19 @@
 package com.agentic.execution_service.models;
 
-import java.util.Map;
+import java.util.Objects;
 
-public record EventEnvelope(
+/**
+ * Generic message envelope for inter-service communication over RabbitMQ.
+ *
+ * Provides a standardized structure wrapping domain payloads with consistent
+ * traceability and routing metadata.
+ */
+public record EventEnvelope<T>(
     EventMetadata metadata,
-    Map<String, Object> payload
-) {}
+    T payload
+) {
+
+    public EventEnvelope {
+        Objects.requireNonNull(metadata, "Event metadata must not be null");
+    }
+}
