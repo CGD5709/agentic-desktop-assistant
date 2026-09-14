@@ -49,7 +49,13 @@ class WebSocketConnectionManager:
             message: Dictionary payload to serialize and transmit.
             websocket: Target WebSocket connection.
         """
-        await websocket.send_text(json.dumps(message))
+        try:
+            if hasattr(websocket, "client_state") and websocket.client_state.name != "CONNECTED":
+                self.disconnect(websocket)
+                return
+            await websocket.send_text(json.dumps(message))
+        except Exception:
+            self.disconnect(websocket)
 
     async def broadcast(self, message: Dict[str, Any]) -> None:
         """

@@ -89,15 +89,21 @@ async def handle_user_message(websocket: WebSocket, payload: Dict[str, Any]) -> 
     except Exception as err:
         # TODO: Replace print with a standardized logging framework (e.g., logging/structlog).
         print(f"❌ [WebSocket] LangGraph execution error: {err}")
-        await ws_manager.send_personal({
-            "type": "assistant_message",
-            "content": f"He experimentado una anomalía en mi núcleo de procesamiento: {err}",
-        }, websocket)
+        try:
+            await ws_manager.send_personal({
+                "type": "assistant_message",
+                "content": f"He experimentado una anomalía en mi núcleo de procesamiento: {err}",
+            }, websocket)
+        except Exception:
+            pass
     finally:
-        await ws_manager.send_personal({
-            "type": "status",
-            "state": "IDLE",
-        }, websocket)
+        try:
+            await ws_manager.send_personal({
+                "type": "status",
+                "state": "IDLE",
+            }, websocket)
+        except Exception:
+            pass
 
 
 MESSAGE_DISPATCHER: Dict[str, MessageHandler] = {

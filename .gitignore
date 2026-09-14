@@ -41,3 +41,8 @@ dist-ssr/
 *.db-wal
 *.sqlite
 *.sqlite3
+
+# Almacenamiento local en runtime y base de datos vectorial (ChromaDB)
+reasoning-engine/data/
+**/chroma_db/
+*.bin

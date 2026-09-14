@@ -33,18 +33,26 @@ export class JarvisWebSocketClient {
       return;
     }
 
+    if (this.reconnectTimer) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     this.shouldReconnect = true;
     this.notifyStatus('CONNECTING');
 
     try {
-      this.ws = new WebSocket(this.url);
+      const ws = new WebSocket(this.url);
+      this.ws = ws;
 
-      this.ws.onopen = () => {
+      ws.onopen = () => {
+        if (this.ws !== ws) return;
         this.notifyStatus('CONNECTED');
         this.startHeartbeat();
       };
 
-      this.ws.onmessage = (event) => {
+      ws.onmessage = (event) => {
+        if (this.ws !== ws) return;
         try {
           const data = JSON.parse(event.data);
           this.handleIncomingMessage(data);
@@ -53,7 +61,8 @@ export class JarvisWebSocketClient {
         }
       };
 
-      this.ws.onclose = () => {
+      ws.onclose = () => {
+        if (this.ws !== ws) return;
         this.stopHeartbeat();
         this.notifyStatus('DISCONNECTED');
         if (this.shouldReconnect) {
@@ -61,9 +70,9 @@ export class JarvisWebSocketClient {
         }
       };
 
-      this.ws.onerror = (error) => {
+      ws.onerror = (error) => {
+        if (this.ws !== ws) return;
         console.warn('[WS] Error de socket:', error);
-        this.ws?.close();
       };
     } catch (e) {
       console.error('[WS] Fallo de inicialización de conexión:', e);
@@ -80,8 +89,17 @@ export class JarvisWebSocketClient {
       this.reconnectTimer = null;
     }
     if (this.ws) {
-      this.ws.close();
+      const socketToClose = this.ws;
       this.ws = null;
+      socketToClose.onopen = null;
+      socketToClose.onmessage = null;
+      socketToClose.onerror = null;
+      socketToClose.onclose = null;
+      try {
+        socketToClose.close();
+      } catch (err) {
+        console.warn('[WS] Error al cerrar socket:', err);
+      }
     }
     this.notifyStatus('DISCONNECTED');
   }

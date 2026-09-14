@@ -67,6 +67,14 @@ class RouterNode:
                 "retrieved_memories": [],
             }
 
+        # Trivial greetings and courtesies are immediately routed to CHAT
+        # without consuming LLM inference cycles or triggering vector search.
+        if is_simple_greeting_or_trivial(last_human_text):
+            return {
+                "intent": Intent.CHAT.value,
+                "retrieved_memories": [],
+            }
+
         classification_messages = [
             SystemMessage(content=self._prompt),
             HumanMessage(content=f"Mensaje del usuario: {last_human_text}"),
