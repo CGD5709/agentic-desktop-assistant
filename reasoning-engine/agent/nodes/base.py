@@ -39,8 +39,6 @@ class BaseAgentNode:
     context assembly, and asynchronous turn persistence for conversational nodes.
     """
 
-    # TODO: Integrate centralized logging framework across agent nodes once standardized.
-
     def __init__(
         self,
         llm: BaseChatModel,

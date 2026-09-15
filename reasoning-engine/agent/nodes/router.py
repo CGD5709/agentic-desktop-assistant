@@ -5,11 +5,14 @@ from typing import Any, Dict, Final, List
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from logger import get_logger
 from ..memory.vector_store import VectorMemoryStore
 from ..models import AgentState
 from ..prompts import ROUTER_PROMPT
 from ..utils import extract_last_human_text, is_simple_greeting_or_trivial
 from .base import Intent
+
+logger = get_logger("reasoning_engine.agent.router")
 
 # Default vector store retrieval limit for intent routing
 DEFAULT_RETRIEVAL_LIMIT: Final[int] = 3
@@ -70,6 +73,7 @@ class RouterNode:
         # Trivial greetings and courtesies are immediately routed to CHAT
         # without consuming LLM inference cycles or triggering vector search.
         if is_simple_greeting_or_trivial(last_human_text):
+            logger.debug("Trivial greeting detected. Routing directly to CHAT.")
             return {
                 "intent": Intent.CHAT.value,
                 "retrieved_memories": [],
@@ -87,8 +91,7 @@ class RouterNode:
             else Intent.CHAT.value
         )
         intent = Intent.COMMAND.value if Intent.COMMAND.value in decision else Intent.CHAT.value
-
-        # TODO: Log classification decisions and vector retrieval outcomes once logger is configured.
+        logger.info("Classified intent: %s (Raw decision: %s)", intent, decision)
 
         # Conditional semantic retrieval (Level 2)
         retrieved_memories: List[Dict[str, Any]] = []
@@ -99,6 +102,7 @@ class RouterNode:
                 score_threshold=self._score_threshold,
             )
             retrieved_memories = [m.model_dump(mode="json") for m in raw_memories]
+            logger.debug("Retrieved %d relevant long-term memories for query", len(retrieved_memories))
 
         return {
             "intent": intent,

@@ -1,6 +1,8 @@
 package com.agentic.execution_service.tools;
 
 import com.agentic.execution_service.models.ToolDefinition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
@@ -14,6 +16,8 @@ import java.util.stream.Collectors;
  */
 @Component
 public class ProcessAnalyzerTool implements AgentTool {
+
+    private static final Logger logger = LoggerFactory.getLogger(ProcessAnalyzerTool.class);
 
     public static final int DEFAULT_PROCESS_LIMIT = 10;
     public static final int MIN_PROCESS_LIMIT = 1;
@@ -46,8 +50,7 @@ public class ProcessAnalyzerTool implements AgentTool {
 
     @Override
     public String execute(Map<String, Object> arguments) throws Exception {
-        // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
-        System.out.println("[ProcessAnalyzerTool] Executing memory diagnostic query...");
+        logger.info("Executing memory diagnostic query...");
 
         int limit = DEFAULT_PROCESS_LIMIT;
 
@@ -59,8 +62,7 @@ public class ProcessAnalyzerTool implements AgentTool {
                 try {
                     limit = Integer.parseInt(limitStr.trim());
                 } catch (NumberFormatException e) {
-                    // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
-                    System.out.println("[ProcessAnalyzerTool] Warning: Received non-numeric process limit ('" + limitObj + "'). Falling back to default: " + DEFAULT_PROCESS_LIMIT);
+                    logger.warn("Received non-numeric process limit ('{}'). Falling back to default: {}", limitObj, DEFAULT_PROCESS_LIMIT);
                 }
             }
         }

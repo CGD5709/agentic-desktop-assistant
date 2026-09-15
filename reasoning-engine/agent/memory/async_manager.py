@@ -9,6 +9,9 @@ from .models import MemoryItem, MemoryCategory, MemoryExtractionPlan, MemoryOper
 from .vector_store import VectorMemoryStore
 from .profile_store import ProfileStore
 from ..prompts import EXTRACTION_PROMPT
+from logger import get_logger
+
+logger = get_logger("reasoning_engine.memory.async_manager")
 
 # Default asynchronous memory manager parameters
 DEFAULT_DEBOUNCE_SECONDS = 45.0
@@ -136,8 +139,7 @@ class AsyncMemoryManager:
             # Cancelled due to incoming user message during cooldown window
             pass
         except Exception as e:
-            # TODO: Replace with proper logger
-            print(f"⚠️ [AsyncMemoryManager] Debounce cooldown error: {e}")
+            logger.warning("Debounce cooldown error: %s", e)
 
     def _is_trivial_block(self, turns: Sequence[Dict[str, str]]) -> bool:
         """
@@ -211,16 +213,14 @@ class AsyncMemoryManager:
                 HumanMessage(content=f"{memories_context}\n\nBloque de conversación a analizar:\n{dialogue_text}")
             ]
 
-            # TODO: Replace with proper logger
-            print(" 🧠 [AsyncMemoryManager] Analyzing conversation batch with memory context...")
+            logger.info("Analyzing conversation batch with memory context...")
             response = await self.llm.ainvoke(messages)
             raw_content = response.content if isinstance(response.content, str) else ""
 
             await self._apply_memory_operations(raw_content)
 
         except Exception as e:
-            # TODO: Replace with proper logger
-            print(f"❌ [AsyncMemoryManager] Error processing memory extraction: {e}")
+            logger.error("Error processing memory extraction: %s", e, exc_info=True)
         finally:
             self._is_processing = False
 
@@ -243,8 +243,7 @@ class AsyncMemoryManager:
             plan = MemoryExtractionPlan.model_validate(data)
             operations = plan.operations
         except Exception as parse_err:
-            # TODO: Replace with proper logger
-            print(f"⚠️ [AsyncMemoryManager] Failed to parse memory extraction JSON plan: {parse_err}")
+            logger.warning("Failed to parse memory extraction JSON plan: %s", parse_err)
             return
 
         for op_item in operations:
@@ -347,6 +346,5 @@ class AsyncMemoryManager:
             self._debounce_task.cancel()
         
         if self._pending_turns:
-            # TODO: Replace with proper logger
-            print(" 🔄 [AsyncMemoryManager] Flushing pending memories before shutdown...")
+            logger.info("Flushing pending memories before shutdown...")
             await self._process_pending_buffer()

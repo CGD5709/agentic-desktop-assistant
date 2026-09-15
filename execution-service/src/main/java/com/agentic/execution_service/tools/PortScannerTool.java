@@ -1,6 +1,8 @@
 package com.agentic.execution_service.tools;
 
 import com.agentic.execution_service.models.ToolDefinition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
@@ -15,6 +17,8 @@ import java.util.stream.Collectors;
  */
 @Component
 public class PortScannerTool implements AgentTool {
+
+    private static final Logger logger = LoggerFactory.getLogger(PortScannerTool.class);
 
     public static final int MIN_PORT = 1;
     public static final int MAX_PORT = 65535;
@@ -69,8 +73,7 @@ public class PortScannerTool implements AgentTool {
             throw new IllegalArgumentException("El puerto debe encontrarse en el rango de " + MIN_PORT + " a " + MAX_PORT + ": " + puerto);
         }
 
-        // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
-        System.out.println("[PortScannerTool] Scanning network status for port: " + puerto);
+        logger.info("Scanning network status for port: {}", puerto);
 
         ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", "netstat -ano | findstr :" + puerto);
         pb.redirectErrorStream(true);

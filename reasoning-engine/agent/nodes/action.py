@@ -13,7 +13,10 @@ from ..models import (
     EventType,
     ToolExecutionRequestPayload,
 )
+from logger import get_logger
 from rabbitmq import RabbitMQClient
+
+logger = get_logger("reasoning_engine.agent.action")
 
 # Metadata identifiers and RPC conventions
 DEFAULT_SOURCE_ID: Final[str] = "reasoning-engine"
@@ -83,9 +86,7 @@ class ActionNode:
             )
 
             routing_key = f"{TOOL_REQUEST_ROUTING_KEY_PREFIX}{tool_name}"
-
-            # TODO: Replace standard print statement with centralized logger
-            print(f" 🚀 [RabbitMQ] Dispatching execution request for: {tool_name}")
+            logger.info("Dispatching tool execution request for '%s' (tool_call_id=%s)", tool_name, tool_call_id)
 
             raw_response = await self._mq_client.send_and_wait(routing_key, envelope)
 

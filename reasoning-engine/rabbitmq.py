@@ -1,9 +1,16 @@
 import asyncio
 import json
+from typing import Any, Awaitable, Callable, Dict, Optional
+
 import aio_pika
 import aio_pika.abc
-from typing import Callable, Awaitable, Dict, Any, Optional
+
 from agent.models import EventEnvelope
+from logger import get_logger
+
+logger = get_logger("reasoning_engine.rabbitmq")
+
+
 class RabbitMQClient:
     """
     Asynchronous RabbitMQ client implementing event broadcasting and the Async RPC pattern.
@@ -35,8 +42,7 @@ class RabbitMQClient:
             type=aio_pika.ExchangeType.TOPIC,
             durable=True
         )
-        # TODO: Replace print with logger.info
-        print("[RabbitMQ] Conectado y Exchange 'agent_events' declarado.")
+        logger.info("Connected to RabbitMQ and declared exchange 'agent_events'")
 
     async def publish(self, routing_key: str, envelope: EventEnvelope):
         """
@@ -54,8 +60,7 @@ class RabbitMQClient:
         )
         
         await self.exchange.publish(message, routing_key=routing_key)
-        # TODO: Replace print with logger.debug
-        print(f"[RabbitMQ] Mensaje publicado (Router: {routing_key})")
+        logger.debug("Published message to exchange with routing key '%s'", routing_key)
 
     async def send_and_wait(self, routing_key: str, envelope: EventEnvelope) -> Dict[str, Any]:
         """
@@ -90,14 +95,8 @@ class RabbitMQClient:
         await queue.bind(self.exchange, routing_key="system.discovery.execution_service")
         await queue.bind(self.exchange, routing_key="tool.response.*")
         
-        # TODO: Replace print with logger.info
-        print("[RabbitMQ] Listening for events on 'reasoning_engine_queue'...")
+        logger.info("Listening for events on 'reasoning_engine_queue'...")
 
-        # TODO: Refactor consumer error handling to prevent Poison Pills and false ACKs.
-        # 1. Use async with message.process(ignore_processed=True) for manual control.
-        # 2. Acknowledge manually: await message.ack() on success.
-        # 3. Handle failures via logger.error() and await message.reject(requeue=False).
-        # 4. Consider declaring a Dead Letter Queue (DLQ) to store rejected messages safely.    
         async with queue.iterator() as queue_iter:
             async for message in queue_iter:
                 async with message.process(): 
@@ -117,17 +116,14 @@ class RabbitMQClient:
                                     fut.set_result(data)
                                     
                         except json.JSONDecodeError as parse_err:
-                            # TODO: Replace print with logger.error
-                            print(f"[RabbitMQ] Failed to parse response payload: {parse_err}")
-                            # Discard malformed messages immediately to protect the business layer
+                            logger.error("Failed to parse response payload: %s", parse_err)
                             continue            
                                 
                     # Delegate the validated event to the external handler
                     try:
                         await message_handler(raw_body, routing_key)
                     except Exception as e:
-                        # TODO: Replace print with logger.error and handle message requeueing/DLQ
-                        print(f"[RabbitMQ] Handler execution failed: {e}")
+                        logger.error("Message handler execution failed: %s", e, exc_info=True)
 
     async def close(self):
         """
@@ -135,5 +131,4 @@ class RabbitMQClient:
         """
         if self.connection and not self.connection.is_closed:
             await self.connection.close()
-            # TODO: Replace print with logger.info
-            print("[RabbitMQ] Connection closed.")
+            logger.info("RabbitMQ connection closed.")

@@ -7,6 +7,8 @@ import com.agentic.execution_service.models.EventType;
 import com.agentic.execution_service.models.ToolDefinition;
 import com.agentic.execution_service.models.ToolRegistryPayload;
 import com.agentic.execution_service.tools.AgentTool;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -23,6 +25,8 @@ import java.util.stream.Collectors;
 @Component
 public class ToolRegistryBroadcaster {
 
+    private static final Logger logger = LoggerFactory.getLogger(ToolRegistryBroadcaster.class);
+
     public static final String ROUTING_KEY_DISCOVERY = "system.discovery.execution_service";
     public static final String CORRELATION_STARTUP = "system-startup";
     public static final String SOURCE_SERVICE_NAME = "execution-service";
@@ -37,8 +41,7 @@ public class ToolRegistryBroadcaster {
 
     @EventListener(ApplicationReadyEvent.class)
     public void broadcastTools() {
-        // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
-        System.out.println("[System Discovery] Announcing available execution tools to the network...");
+        logger.info("Announcing available execution tools to the network...");
 
         List<ToolDefinition> toolDefinitions = availableTools.stream()
                 .map(AgentTool::getDefinition)
@@ -59,11 +62,9 @@ public class ToolRegistryBroadcaster {
 
         try {
             rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE_NAME, ROUTING_KEY_DISCOVERY, envelope);
-            // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
-            System.out.println("   -> Manifest published successfully: " + toolNames);
+            logger.info("Tool manifest published successfully: {}", toolNames);
         } catch (AmqpException ex) {
-            // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
-            System.err.println("[System Discovery] Warning: Failed to broadcast tool registry on startup: " + ex.getMessage());
+            logger.warn("Failed to broadcast tool registry on startup: {}", ex.getMessage(), ex);
         }
     }
 }

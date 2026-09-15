@@ -5,7 +5,10 @@ import json
 from typing import Any, Awaitable, Callable, Dict, List
 
 from agent import AgentRuntime
+from logger import get_logger
 from services.connection_manager import WebSocketConnectionManager
+
+logger = get_logger("reasoning_engine.rabbitmq_listener")
 
 
 def convert_execution_tools_to_openai_format(
@@ -63,15 +66,13 @@ def create_rabbitmq_message_handler(
                 runtime.dynamic_tools.extend(converted_tools)
 
                 tool_names = [t["function"]["name"] for t in converted_tools]
-                # TODO: Replace print with a standardized logging framework (e.g., logging/structlog).
-                print(f"\n📡 [System Discovery] Tools registered from execution-service: {tool_names}")
+                logger.info("Tools registered from execution-service: %s", tool_names)
 
                 await ws_manager.broadcast({
                     "type": "tools_updated",
                     "tools": [t["function"]["name"] for t in runtime.dynamic_tools],
                 })
             except Exception as e:
-                # TODO: Replace print with a standardized logging framework (e.g., logging/structlog).
-                print(f"\n❌ [System Discovery] Error processing tool discovery payload: {e}")
+                logger.error("Error processing tool discovery payload: %s", e, exc_info=True)
 
     return handle_rabbitmq_message

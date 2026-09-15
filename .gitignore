@@ -1,5 +1,5 @@
 # =========================
-# Ignorados del SO e IDEs
+# OS & IDE Files
 # =========================
 .DS_Store
 .idea/
@@ -35,14 +35,14 @@ dist/
 dist-ssr/
 .npm/
 
-# Bases de datos locales de SQLite (Memoria del Agente)
+# Local SQLite Databases (Agent Memory)
 *.db
 *.db-shm
 *.db-wal
 *.sqlite
 *.sqlite3
 
-# Almacenamiento local en runtime y base de datos vectorial (ChromaDB)
+# Local Runtime Storage & Vector Database (ChromaDB)
 reasoning-engine/data/
 **/chroma_db/
 *.bin

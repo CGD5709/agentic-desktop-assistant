@@ -7,7 +7,10 @@ from chromadb.api import ClientAPI
 from chromadb.api.models.Collection import Collection
 from chromadb.api.types import Where
 from langchain_ollama import OllamaEmbeddings
+from logger import get_logger
 from .models import MemoryItem, MemoryCategory
+
+logger = get_logger("reasoning_engine.memory.vector_store")
 
 # Default vector store configuration
 DEFAULT_PERSIST_DIR = "./data/chroma_db"
@@ -96,8 +99,7 @@ class VectorMemoryStore:
         try:
             return await asyncio.to_thread(self._embeddings.embed_query, text)
         except Exception as e:
-            # TODO: Replace with proper logger
-            print(f"⚠️ [VectorStore] Error generating embedding with Ollama ({self.embedding_model}): {e}")
+            logger.warning("Error generating embedding with Ollama (%s): %s", self.embedding_model, e)
             return []
 
     async def add_memory(self, item: MemoryItem) -> bool:
@@ -133,12 +135,11 @@ class VectorMemoryStore:
                 documents=[item.text],
                 metadatas=[metadata]
             )
-            # TODO: Replace with proper logger
-            print(f" 💾 [VectorStore] Memory saved ({metadata['category']}): {item.text[:60]}...")
+            preview = (item.text[:60] + "...") if len(item.text) > 60 else item.text
+            logger.info("Memory saved (%s): %s", metadata["category"], preview)
             return True
         except Exception as e:
-            # TODO: Replace with proper logger
-            print(f"❌ [VectorStore] Error saving memory: {e}")
+            logger.error("Error saving memory: %s", e, exc_info=True)
             return False
 
     async def search_memories(
@@ -255,8 +256,7 @@ class VectorMemoryStore:
 
             return memories
         except Exception as e:
-            # TODO: Replace with proper logger
-            print(f"⚠️ [VectorStore] Error during semantic search: {e}")
+            logger.warning("Error during semantic search: %s", e)
             return []
 
     async def touch_memory(self, memory_id: str, current_metadata: Optional[Mapping[str, Any]] = None) -> None:
@@ -282,9 +282,8 @@ class VectorMemoryStore:
                 ids=[memory_id],
                 metadatas=[clean_meta]
             )
-        except Exception:
-            # TODO: Replace with proper logger
-            pass
+        except Exception as e:
+            logger.debug("Error touching memory timestamp for ID %s: %s", memory_id, e)
 
     async def update_memory(
         self,
@@ -309,8 +308,7 @@ class VectorMemoryStore:
 
             existing = await asyncio.to_thread(self._collection.get, ids=[memory_id], include=["metadatas"])
             if not existing or not existing.get("ids") or not existing["ids"]:
-                # TODO: Replace with proper logger
-                print(f"⚠️ [VectorStore] Memory not found for ID: {memory_id}")
+                logger.warning("Memory not found for update (ID: %s)", memory_id)
                 return False
 
             raw_meta = existing["metadatas"][0] if existing.get("metadatas") and existing["metadatas"] and existing["metadatas"][0] else {}
@@ -330,12 +328,11 @@ class VectorMemoryStore:
                 embeddings=[embedding],
                 metadatas=[clean_meta]
             )
-            # TODO: Replace with proper logger
-            print(f" 🔄 [VectorStore] Memory updated (ID: {memory_id[:8]}): {new_text[:50]}...")
+            preview = (new_text[:50] + "...") if len(new_text) > 50 else new_text
+            logger.info("Memory updated (ID: %s): %s", memory_id[:8], preview)
             return True
         except Exception as e:
-            # TODO: Replace with proper logger
-            print(f"❌ [VectorStore] Error updating memory: {e}")
+            logger.error("Error updating memory: %s", e, exc_info=True)
             return False
 
     async def delete_memory(self, memory_id: str) -> bool:
@@ -349,12 +346,10 @@ class VectorMemoryStore:
             self._initialize()
             assert self._collection is not None
             await asyncio.to_thread(self._collection.delete, ids=[memory_id])
-            # TODO: Replace with proper logger
-            print(f" 🗑️ [VectorStore] Memory deleted (ID: {memory_id[:8]})")
+            logger.info("Memory deleted (ID: %s)", memory_id[:8])
             return True
         except Exception as e:
-            # TODO: Replace with proper logger
-            print(f"❌ [VectorStore] Error deleting memory: {e}")
+            logger.error("Error deleting memory: %s", e, exc_info=True)
             return False
 
     def format_for_context(self, memories: Sequence[Any]) -> str:

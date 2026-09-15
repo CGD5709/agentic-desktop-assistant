@@ -1,6 +1,8 @@
 package com.agentic.execution_service.tools;
 
 import com.agentic.execution_service.models.ToolDefinition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
@@ -16,6 +18,8 @@ import java.util.stream.Collectors;
  */
 @Component
 public class KillProcessTool implements AgentTool {
+
+    private static final Logger logger = LoggerFactory.getLogger(KillProcessTool.class);
 
     public static final int SYSTEM_IDLE_PID = 0;
     public static final int SYSTEM_KERNEL_PID = 4;
@@ -93,10 +97,12 @@ public class KillProcessTool implements AgentTool {
         }
 
         if (processName != null && PROTECTED_PROCESSES.contains(processName.toLowerCase())) {
+            logger.warn("Blocked attempt to terminate protected system process: {}", processName);
             return "Operación bloqueada por seguridad: '" + processName + "' es un proceso crítico de la infraestructura o del sistema operativo y no se puede cerrar.";
         }
 
         if (pid != null && (pid == SYSTEM_IDLE_PID || pid == SYSTEM_KERNEL_PID)) {
+            logger.warn("Blocked attempt to terminate kernel system PID: {}", pid);
             return "Operación bloqueada por seguridad: El PID " + pid + " pertenece al Núcleo del Sistema y no se puede cerrar.";
         }
 
@@ -105,13 +111,11 @@ public class KillProcessTool implements AgentTool {
 
         if (processName != null) {
             targetDesc = "proceso '" + processName + "'";
-            // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
-            System.out.println("[KillProcessTool] Terminating process by name: " + processName);
+            logger.info("Terminating process by name: {}", processName);
             pb = new ProcessBuilder("taskkill", "/F", "/IM", processName);
         } else if (pid != null) {
             targetDesc = "PID " + pid;
-            // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
-            System.out.println("[KillProcessTool] Terminating process by PID: " + pid);
+            logger.info("Terminating process by PID: {}", pid);
             pb = new ProcessBuilder("taskkill", "/F", "/PID", String.valueOf(pid));
         } else {
             throw new IllegalArgumentException("No se ha podido determinar un identificador de proceso válido (nombre o PID).");

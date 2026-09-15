@@ -1,6 +1,8 @@
 package com.agentic.execution_service.tools;
 
 import com.agentic.execution_service.models.ToolDefinition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -15,6 +17,8 @@ import java.util.regex.Pattern;
  */
 @Component
 public class OpenWebTool implements AgentTool {
+
+    private static final Logger logger = LoggerFactory.getLogger(OpenWebTool.class);
 
     private static final Set<String> ALLOWED_SCHEMES = Set.of("http", "https");
     private static final Pattern DISALLOWED_SHELL_CHARS = Pattern.compile("[&|<>;\"^%\r\n]");
@@ -78,8 +82,7 @@ public class OpenWebTool implements AgentTool {
             throw new IllegalArgumentException("Protocolo no permitido o URL inválida. Debe comenzar por http:// o https://");
         }
 
-        // TODO: Replace print with a standardized logging framework (e.g., SLF4J / Logback).
-        System.out.println("[OpenWebTool] Launching default browser at URL: " + rawUrl);
+        logger.info("Launching default browser at URL: {}", rawUrl);
 
         ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", "start", "\"\"", rawUrl);
         pb.start();

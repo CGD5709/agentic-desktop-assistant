@@ -18,6 +18,8 @@ class Settings(BaseSettings):
         HOST: Host network interface address for the HTTP/WebSocket server.
         PORT: Port number on which the server listens.
         ALLOWED_ORIGINS: Permitted CORS origins for browser/desktop clients.
+        LOG_LEVEL: Logging severity threshold (e.g. 'DEBUG', 'INFO', 'WARNING', 'ERROR').
+        LOG_FORMAT: Output formatter style ('console' or 'json').
     """
 
     HOST: str = "0.0.0.0"
@@ -26,6 +28,8 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ]
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "console"
 
     model_config = SettingsConfigDict(
         env_file=".env",
