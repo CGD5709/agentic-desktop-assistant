@@ -1,5 +1,5 @@
 type StatusCallback = (status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING') => void;
-type MessageCallback = (content: string) => void;
+type MessageCallback = (content: string, speechText?: string) => void;
 type AssistantStatusCallback = (state: 'THINKING' | 'IDLE') => void;
 type ToolsCallback = (tools: string[]) => void;
 
@@ -117,10 +117,21 @@ export class JarvisWebSocketClient {
     return true;
   }
 
+  public sendStop() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    this.ws.send(JSON.stringify({
+      type: 'stop'
+    }));
+    return true;
+  }
+
   private handleIncomingMessage(data: any) {
     switch (data.type) {
       case 'assistant_message':
-        this.onMessageListeners.forEach(cb => cb(data.content || ''));
+        this.onMessageListeners.forEach(cb => cb(data.content || '', data.speech_text));
         break;
       case 'status':
         this.onAssistantStatusListeners.forEach(cb => cb(data.state || 'IDLE'));

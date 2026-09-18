@@ -2,10 +2,13 @@ export type TabType = 'home' | 'settings';
 
 export type VoiceState = 'IDLE' | 'LISTENING' | 'THINKING' | 'SPEAKING';
 
+export type PttMode = 'hold' | 'toggle';
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'jarvis' | 'system';
   content: string;
+  speechText?: string;
   timestamp: string;
   isStreaming?: boolean;
 }
@@ -28,4 +31,9 @@ export interface AppSettings {
   temperature: number;
   audioSensitivity: number;
   autoSpeakResponse: boolean;
+  pttMode: PttMode;
+  ttsVoiceURI: string;
+  ttsRate: number;
+  ttsPitch: number;
+  soundEffects: boolean;
 }

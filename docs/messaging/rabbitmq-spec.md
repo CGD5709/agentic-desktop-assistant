@@ -179,7 +179,27 @@ json_payload = envelope.model_dump_json(by_alias=True)
     "eventType": "EXECUTION_REQUEST"
   },
   "payload": {
-    "toolName": "openWebTool",
+    "toolName": "control_audio_sistema",
+    "arguments": {
+      "accion": "set_volume",
+      "nivel": 60
+    }
+  }
+}
+```
+
+Example request for `abrir_sitio_web`:
+```json
+{
+  "metadata": {
+    "eventId": "e9a0c20a-7434-4b55-8db8-124618e7e174",
+    "correlationId": "5f9b4c09-0d12-4c91-9c8e-5b1234567890",
+    "timestamp": 1726671045000,
+    "source": "reasoning-engine",
+    "eventType": "EXECUTION_REQUEST"
+  },
+  "payload": {
+    "toolName": "abrir_sitio_web",
     "arguments": {
       "url": "https://www.google.com"
     }

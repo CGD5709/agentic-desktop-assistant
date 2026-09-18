@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { TabType, ChatMessage, TaskItem, AppSettings } from './types';
 import { HeaderHUD } from './components/HeaderHUD';
 import { ChatPanel } from './components/ChatPanel';
@@ -15,7 +15,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   modelName: 'qwen2.5:7b',
   temperature: 0.2,
   audioSensitivity: 80,
-  autoSpeakResponse: false
+  autoSpeakResponse: false,
+  pttMode: 'hold',
+  ttsVoiceURI: '',
+  ttsRate: 1.05,
+  ttsPitch: 1.0,
+  soundEffects: true
 };
 
 const INITIAL_TASKS: TaskItem[] = [
@@ -30,11 +35,11 @@ const INITIAL_TASKS: TaskItem[] = [
   },
   {
     id: 't-2',
-    title: 'Escanear Puertos Locales Abiertos',
-    description: 'Verificar sockets de red en rango de puertos 8000 a 8090.',
+    title: 'Control de Audio del Sistema',
+    description: 'Ajustar y monitorear los niveles de sonido maestro en Windows.',
     status: 'IN_PROGRESS',
     priority: 'HIGH',
-    category: 'SECURITY',
+    category: 'AUDIO',
     createdAt: '10:45:12'
   },
   {
@@ -53,7 +58,7 @@ export const App: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem('jarvis_settings');
-      return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
     } catch {
       return DEFAULT_SETTINGS;
     }
@@ -65,20 +70,59 @@ export const App: React.FC = () => {
       id: 'm-welcome',
       sender: 'jarvis',
       content: 'Buenos días. Todos los sistemas de asistencia y ejecución están en línea y a su completa disposición.',
+      speechText: 'Buenos días. Todos los sistemas de asistencia y ejecución están en línea y a su completa disposición.',
       timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
     }
   ]);
   const [tasks] = useState<TaskItem[]>(INITIAL_TASKS);
   const [connectionStatus, setConnectionStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'CONNECTING'>('CONNECTING');
   const [assistantStatus, setAssistantStatus] = useState<'THINKING' | 'IDLE'>('IDLE');
-  const [toolsCount, setToolsCount] = useState<number>(4);
+  const [toolsCount, setToolsCount] = useState<number>(5);
 
-  // Hook de micrófono y audio con el atajo de teclado configurado
+  const autoSpeakRef = useRef(settings.autoSpeakResponse);
+  autoSpeakRef.current = settings.autoSpeakResponse;
+
+  // Enviar mensaje de usuario
+  const handleSendMessage = useCallback((text: string) => {
+    if (!text || !text.trim()) return;
+
+    const userMsg: ChatMessage = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      sender: 'user',
+      content: text.trim(),
+      timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setMessages(prev => [...prev, userMsg]);
+    wsService.sendUserMessage(text.trim());
+  }, []);
+
+  // Hook unificado de voz (STT, TTS, PTT, Audio Analysis)
   const {
     voiceState,
     audioLevel,
-    toggleListening
-  } = useVoice(settings.globalHotkey);
+    interimTranscript,
+    startListening,
+    stopListening,
+    toggleListening,
+    cancelSpeech,
+    speak
+  } = useVoice({
+    hotkey: settings.globalHotkey,
+    pttMode: settings.pttMode,
+    ttsVoiceURI: settings.ttsVoiceURI,
+    ttsRate: settings.ttsRate,
+    ttsPitch: settings.ttsPitch,
+    soundEffects: settings.soundEffects,
+    onFinalTranscript: handleSendMessage
+  });
+
+  // Botón de Parada (Stop) estilo Gemini
+  const handleStop = useCallback(() => {
+    cancelSpeech();
+    wsService.sendStop();
+    setAssistantStatus('IDLE');
+  }, [cancelSpeech]);
 
   // Conexión WebSocket al motor de razonamiento de Python
   useEffect(() => {
@@ -97,14 +141,20 @@ export const App: React.FC = () => {
       setToolsCount(toolsList.length);
     });
 
-    const unsubMessage = wsService.onMessage(content => {
+    const unsubMessage = wsService.onMessage((content, speechText) => {
       const newMsg: ChatMessage = {
         id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
         sender: 'jarvis',
         content: content,
+        speechText: speechText,
         timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
       };
       setMessages(prev => [...prev, newMsg]);
+
+      // Reproducción automática de voz si está activada
+      if (autoSpeakRef.current && (speechText || content)) {
+        speak(speechText || content);
+      }
     });
 
     return () => {
@@ -114,20 +164,7 @@ export const App: React.FC = () => {
       unsubMessage();
       wsService.disconnect();
     };
-  }, [settings.wsUrl]);
-
-  // Enviar mensaje de usuario
-  const handleSendMessage = useCallback((text: string) => {
-    const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      sender: 'user',
-      content: text,
-      timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-    };
-
-    setMessages(prev => [...prev, userMsg]);
-    wsService.sendUserMessage(text);
-  }, []);
+  }, [settings.wsUrl, speak]);
 
   const handleClearMessages = useCallback(() => {
     setMessages([]);
@@ -169,20 +206,25 @@ export const App: React.FC = () => {
       }}>
         {activeTab === 'home' ? (
           <>
-            {/* Panel de Chat (Izquierda, Redimensionable) */}
+            {/* Panel de Chat (Izquierda, Redimensionable con Botón Dinámico Stop/Send) */}
             <ChatPanel
               messages={messages}
               onSendMessage={handleSendMessage}
               onClearMessages={handleClearMessages}
+              onStop={handleStop}
               assistantStatus={assistantStatus}
               voiceState={voiceState}
+              onStartListening={startListening}
+              onStopListening={stopListening}
               onToggleVoice={toggleListening}
+              interimTranscript={interimTranscript}
               hotkeyDisplayName={settings.hotkeyDisplayName}
+              pttMode={settings.pttMode}
               width={chatWidth}
               onWidthChange={setChatWidth}
             />
 
-            {/* Canvas Central Libre con Arc Reactor */}
+            {/* Canvas Central Libre con Arc Reactor Reactivo */}
             <ArcReactorHUD
               voiceState={voiceState}
               audioLevel={audioLevel * (settings.audioSensitivity / 80)}

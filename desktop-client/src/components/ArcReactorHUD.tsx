@@ -1,6 +1,6 @@
 import React from 'react';
 import { VoiceState } from '../types';
-import { Activity, Radio } from 'lucide-react';
+import { Activity, Radio, Volume2 } from 'lucide-react';
 
 interface ArcReactorHUDProps {
   voiceState: VoiceState;
@@ -15,16 +15,30 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
 }) => {
   const isListening = voiceState === 'LISTENING';
   const isThinking = voiceState === 'THINKING';
+  const isSpeaking = voiceState === 'SPEAKING';
 
-  // El nivel de audio escala dinámicamente el pulso y los anillos
-  const dynamicScale = isListening ? 1 + audioLevel * 0.45 : 1;
-  const coreGlowIntensity = isListening 
+  // Dynamic scale depending on active state
+  const dynamicScale = isListening
+    ? 1 + audioLevel * 0.45
+    : isSpeaking
+    ? 1.08
+    : 1;
+
+  const coreGlowIntensity = isListening
     ? `0 0 ${25 + audioLevel * 60}px rgba(0, 255, 194, 0.9)`
-    : isThinking 
+    : isThinking
     ? '0 0 35px rgba(255, 183, 0, 0.8)'
+    : isSpeaking
+    ? '0 0 35px rgba(0, 242, 255, 0.95)'
     : '0 0 25px rgba(0, 242, 255, 0.6)';
 
-  const coreColor = isListening ? 'var(--teal-accent)' : isThinking ? 'var(--amber-accent)' : 'var(--cyan-neon)';
+  const coreColor = isListening
+    ? 'var(--teal-accent)'
+    : isThinking
+    ? 'var(--amber-accent)'
+    : isSpeaking
+    ? 'var(--cyan-bright)'
+    : 'var(--cyan-neon)';
 
   return (
     <div
@@ -77,10 +91,19 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
         gap: '4px'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
-          <Radio size={13} color={isListening ? 'var(--teal-accent)' : 'var(--cyan-neon)'} />
-          <span style={{ color: isListening ? 'var(--teal-accent)' : 'var(--cyan-neon)' }}>
-            VOICE FREQ: {isListening ? `${Math.round(audioLevel * 100)}%` : 'STANDBY'}
-          </span>
+          {isSpeaking ? (
+            <>
+              <Volume2 size={13} color="var(--cyan-bright)" className="animate-pulse-core" />
+              <span style={{ color: 'var(--cyan-bright)' }}>VOCAL EMISSION</span>
+            </>
+          ) : (
+            <>
+              <Radio size={13} color={isListening ? 'var(--teal-accent)' : 'var(--cyan-neon)'} />
+              <span style={{ color: isListening ? 'var(--teal-accent)' : 'var(--cyan-neon)' }}>
+                VOICE FREQ: {isListening ? `${Math.round(audioLevel * 100)}%` : 'STANDBY'}
+              </span>
+            </>
+          )}
         </div>
         <div>LATENCY: &lt; 12ms // LOCAL ENGINE</div>
         <div>SECURITY: SHIELD ACTIVE</div>
@@ -104,15 +127,15 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
           style={{ position: 'absolute', top: 0, left: 0 }}
         >
           {/* Anillo exterior dentado */}
-          <g className="animate-spin-slow" style={{ transformOrigin: '150px 150px' }}>
+          <g className={isSpeaking ? "animate-spin-fast" : "animate-spin-slow"} style={{ transformOrigin: '150px 150px' }}>
             <circle
               cx="150"
               cy="150"
               r="135"
               fill="none"
-              stroke="rgba(0, 242, 255, 0.2)"
+              stroke={isSpeaking ? "rgba(0, 242, 255, 0.5)" : "rgba(0, 242, 255, 0.2)"}
               strokeWidth="2"
-              strokeDasharray="4 8"
+              strokeDasharray={isSpeaking ? "12 4" : "4 8"}
             />
           </g>
 
@@ -123,7 +146,7 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
               cy="150"
               r="122"
               fill="none"
-              stroke="var(--cyan-neon)"
+              stroke={coreColor}
               strokeWidth="3"
               strokeDasharray="2 12"
               opacity="0.6"
@@ -142,17 +165,17 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
           />
 
           {/* Arco sectorial rotatorio */}
-          <g className="animate-spin-fast" style={{ transformOrigin: '150px 150px' }}>
+          <g className={isSpeaking ? "animate-spin-fast" : "animate-spin-fast"} style={{ transformOrigin: '150px 150px' }}>
             <circle
               cx="150"
               cy="150"
               r="92"
               fill="none"
-              stroke={isListening ? 'var(--teal-accent)' : 'var(--cyan-bright)'}
+              stroke={isListening ? 'var(--teal-accent)' : isSpeaking ? 'var(--cyan-bright)' : 'var(--cyan-bright)'}
               strokeWidth="4"
               strokeDasharray="90 180"
               strokeLinecap="round"
-              style={{ filter: `drop-shadow(0 0 8px ${isListening ? 'var(--teal-accent)' : 'var(--cyan-neon)'})` }}
+              style={{ filter: `drop-shadow(0 0 8px ${isListening ? 'var(--teal-accent)' : isSpeaking ? 'var(--cyan-glow)' : 'var(--cyan-neon)'})` }}
             />
           </g>
 
@@ -175,7 +198,7 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
             cy="150"
             r="55"
             fill="rgba(4, 18, 38, 0.7)"
-            stroke="var(--cyan-neon)"
+            stroke={coreColor}
             strokeWidth="2"
           />
 
@@ -187,7 +210,7 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
               y1="150"
               x2={150 + 50 * Math.cos((deg * Math.PI) / 180)}
               y2={150 + 50 * Math.sin((deg * Math.PI) / 180)}
-              stroke="rgba(0, 242, 255, 0.3)"
+              stroke={isSpeaking ? "rgba(0, 242, 255, 0.6)" : "rgba(0, 242, 255, 0.3)"}
               strokeWidth="1.5"
             />
           ))}
@@ -207,7 +230,7 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
             zIndex: 5,
             transition: 'all 0.15s ease'
           }}
-          className={isThinking ? 'animate-spin-fast' : 'animate-pulse-core'}
+          className={isThinking || isSpeaking ? 'animate-spin-fast' : 'animate-pulse-core'}
         >
           <div style={{
             width: '24px',
@@ -236,7 +259,13 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
           textShadow: `0 0 12px ${coreColor}`,
           margin: 0
         }}>
-          {isListening ? 'LISTENING // AUDIO INPUT ACTIVE' : isThinking ? 'PROCESSING QUERY...' : 'J.A.R.V.I.S // ONLINE'}
+          {isListening
+            ? 'LISTENING // AUDIO INPUT ACTIVE'
+            : isThinking
+            ? 'PROCESSING QUERY...'
+            : isSpeaking
+            ? 'SPEAKING // VOCAL OUTPUT'
+            : 'J.A.R.V.I.S // ONLINE'}
         </h2>
 
         <p style={{
@@ -250,6 +279,8 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
             ? 'HABLA AL MICRÓFONO... ESCUCHANDO TU ORDEN' 
             : isThinking
             ? 'CONSULTANDO MODELO LOCAL Y HERRAMIENTAS'
+            : isSpeaking
+            ? 'REPRODUCIENDO RESPUESTA DE VOZ'
             : 'SISTEMA DE ASISTENCIA Y EJECUCIÓN PREPARADO'}
         </p>
 
@@ -258,13 +289,13 @@ export const ArcReactorHUD: React.FC<ArcReactorHUDProps> = ({
           marginTop: '10px',
           padding: '4px 14px',
           borderRadius: '12px',
-          backgroundColor: 'rgba(0, 242, 255, 0.08)',
-          border: '1px solid var(--cyan-border)',
+          backgroundColor: isSpeaking ? 'rgba(0, 242, 255, 0.15)' : 'rgba(0, 242, 255, 0.08)',
+          border: `1px solid ${isSpeaking ? 'var(--cyan-neon)' : 'var(--cyan-border)'}`,
           fontFamily: 'var(--font-mono)',
           fontSize: '11px',
           color: 'var(--cyan-neon)'
         }}>
-          CANVAS LIBRE PARA ARTEFACTOS & WIDGETS
+          {isSpeaking ? 'PULSA EL BOTÓN DE PARADA O HABLA PARA INTERRUMPIR' : 'CANVAS LIBRE PARA ARTEFACTOS & WIDGETS'}
         </div>
       </div>
     </div>

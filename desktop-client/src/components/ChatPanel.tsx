@@ -1,15 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage, VoiceState } from '../types';
-import { Send, Mic, Trash2, Bot, User, Sparkles, Terminal } from 'lucide-react';
+import { ChatMessage, VoiceState, PttMode } from '../types';
+import { Send, Mic, Trash2, Bot, User, Sparkles, Terminal, Square, Volume2 } from 'lucide-react';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (content: string) => void;
   onClearMessages: () => void;
+  onStop: () => void;
   assistantStatus: 'THINKING' | 'IDLE';
   voiceState: VoiceState;
+  onStartListening: () => void;
+  onStopListening: () => void;
   onToggleVoice: () => void;
+  interimTranscript?: string;
   hotkeyDisplayName: string;
+  pttMode: PttMode;
   width: number;
   onWidthChange: (newWidth: number) => void;
 }
@@ -18,10 +23,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   messages,
   onSendMessage,
   onClearMessages,
+  onStop,
   assistantStatus,
   voiceState,
+  onStartListening,
+  onStopListening,
   onToggleVoice,
+  interimTranscript = '',
   hotkeyDisplayName,
+  pttMode,
   width,
   onWidthChange
 }) => {
@@ -30,16 +40,19 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const isBusy = assistantStatus === 'THINKING' || voiceState === 'SPEAKING';
+  const isListening = voiceState === 'LISTENING';
+  const isSpeaking = voiceState === 'SPEAKING';
+
   // Auto-scroll al final de la conversación
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, assistantStatus]);
+  }, [messages, assistantStatus, interimTranscript]);
 
   // Manejo de redimensionado arrastrando el borde derecho
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return;
-      // Ancho mínimo 280px, máximo 650px
       const newWidth = Math.min(Math.max(280, e.clientX - 16), 650);
       onWidthChange(newWidth);
     };
@@ -60,12 +73,49 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || assistantStatus === 'THINKING') return;
+    if (isBusy) {
+      onStop();
+      return;
+    }
+    if (!inputText.trim()) return;
     onSendMessage(inputText);
     setInputText('');
   };
 
-  const isListening = voiceState === 'LISTENING';
+  // Mic Button event handlers depending on PTT mode
+  const handleMicMouseDown = (e: React.MouseEvent) => {
+    if (pttMode === 'hold') {
+      e.preventDefault();
+      onStartListening();
+    }
+  };
+
+  const handleMicMouseUp = (e: React.MouseEvent) => {
+    if (pttMode === 'hold') {
+      e.preventDefault();
+      onStopListening();
+    }
+  };
+
+  const handleMicTouchStart = (e: React.TouchEvent) => {
+    if (pttMode === 'hold') {
+      e.preventDefault();
+      onStartListening();
+    }
+  };
+
+  const handleMicTouchEnd = (e: React.TouchEvent) => {
+    if (pttMode === 'hold') {
+      e.preventDefault();
+      onStopListening();
+    }
+  };
+
+  const handleMicClick = () => {
+    if (pttMode === 'toggle') {
+      onToggleVoice();
+    }
+  };
 
   return (
     <div
@@ -139,7 +189,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <Bot size={32} color="var(--cyan-border)" className="animate-pulse-core" />
             <p>SISTEMA LISTO // ESPERANDO COMANDO</p>
             <p style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-              Escribe un mensaje o pulsa [{hotkeyDisplayName}] para hablar por voz.
+              Escribe un mensaje o usa [{hotkeyDisplayName}] ({pttMode === 'hold' ? 'Mantén presionado' : 'Pulsa'}) para hablar.
             </p>
           </div>
         ) : (
@@ -193,7 +243,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     lineHeight: '1.5',
                     wordBreak: 'break-word',
                     whiteSpace: 'pre-wrap',
-                    fontFamily: isUser ? 'var(--font-sans)' : 'var(--font-sans)'
+                    fontFamily: 'var(--font-sans)'
                   }}
                 >
                   {msg.content}
@@ -201,6 +251,25 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               </div>
             );
           })
+        )}
+
+        {/* Indicador de escucha en tiempo real */}
+        {isListening && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 12px',
+            borderRadius: '6px',
+            backgroundColor: 'rgba(0, 255, 194, 0.1)',
+            border: '1px solid var(--teal-accent)',
+            fontSize: '12px',
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--teal-accent)'
+          }}>
+            <Mic size={14} className="animate-pulse-core" />
+            <span>Escuchando... {interimTranscript ? `"${interimTranscript}"` : '(habla ahora)'}</span>
+          </div>
         )}
 
         {/* Indicador de pensamiento de Jarvis */}
@@ -211,21 +280,40 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             gap: '8px',
             padding: '8px 12px',
             borderRadius: '6px',
-            backgroundColor: 'rgba(0, 242, 255, 0.08)',
-            border: '1px solid var(--cyan-border)',
+            backgroundColor: 'rgba(255, 183, 0, 0.1)',
+            border: '1px solid var(--amber-accent)',
             fontSize: '12px',
             fontFamily: 'var(--font-mono)',
-            color: 'var(--cyan-neon)'
+            color: 'var(--amber-accent)'
           }}>
             <Sparkles size={14} className="animate-spin-fast" />
-            <span>J.A.R.V.I.S procesando razonamiento...</span>
+            <span>J.A.R.V.I.S razonando... (pulsa el botón Stop para detener)</span>
+          </div>
+        )}
+
+        {/* Indicador de habla activa de Jarvis */}
+        {isSpeaking && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 12px',
+            borderRadius: '6px',
+            backgroundColor: 'rgba(0, 242, 255, 0.1)',
+            border: '1px solid var(--cyan-neon)',
+            fontSize: '12px',
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--cyan-bright)'
+          }}>
+            <Volume2 size={14} className="animate-pulse-core" />
+            <span>J.A.R.V.I.S hablando... (pulsa Stop o habla para interrumpir)</span>
           </div>
         )}
 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 3. Input Bar */}
+      {/* 3. Input Bar con Botón Dinámico Send / Stop (Estilo Gemini) */}
       <form onSubmit={handleSend} style={{
         padding: '12px',
         borderTop: '1px solid var(--cyan-border)',
@@ -234,17 +322,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         alignItems: 'center',
         gap: '8px'
       }}>
+        {/* Botón de Micrófono con soporte PTT */}
         <button
           type="button"
-          onClick={onToggleVoice}
+          onMouseDown={handleMicMouseDown}
+          onMouseUp={handleMicMouseUp}
+          onTouchStart={handleMicTouchStart}
+          onTouchEnd={handleMicTouchEnd}
+          onClick={handleMicClick}
           className="hud-btn"
           style={{
             padding: '8px',
             borderColor: isListening ? 'var(--teal-accent)' : 'var(--cyan-border)',
             backgroundColor: isListening ? 'rgba(0, 255, 194, 0.25)' : 'transparent',
-            boxShadow: isListening ? '0 0 12px var(--teal-glow)' : 'none'
+            boxShadow: isListening ? '0 0 12px var(--teal-glow)' : 'none',
+            cursor: 'pointer',
+            userSelect: 'none'
           }}
-          title={`Activar entrada por voz [${hotkeyDisplayName}]`}
+          title={`Voz [${hotkeyDisplayName}] (${pttMode === 'hold' ? 'Mantén presionado para hablar' : 'Pulsa para alternar'})`}
         >
           <Mic size={16} color={isListening ? 'var(--teal-accent)' : 'var(--cyan-neon)'} className={isListening ? 'animate-pulse-core' : ''} />
         </button>
@@ -254,12 +349,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          placeholder="Escribe una orden o pregunta..."
+          placeholder={isListening ? "Escuchando tu voz..." : "Escribe una orden o pregunta..."}
           disabled={assistantStatus === 'THINKING'}
           style={{
             flex: 1,
             backgroundColor: 'rgba(0, 242, 255, 0.04)',
-            border: '1px solid var(--cyan-border)',
+            border: `1px solid ${isListening ? 'var(--teal-accent)' : 'var(--cyan-border)'}`,
             borderRadius: 'var(--radius-sm)',
             padding: '9px 12px',
             color: '#fff',
@@ -273,23 +368,43 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             e.target.style.boxShadow = '0 0 10px var(--cyan-glow)';
           }}
           onBlur={(e) => {
-            e.target.style.borderColor = 'var(--cyan-border)';
+            e.target.style.borderColor = isListening ? 'var(--teal-accent)' : 'var(--cyan-border)';
             e.target.style.boxShadow = 'none';
           }}
         />
 
-        <button
-          type="submit"
-          className="hud-btn"
-          disabled={!inputText.trim() || assistantStatus === 'THINKING'}
-          style={{
-            padding: '8px 14px',
-            opacity: (!inputText.trim() || assistantStatus === 'THINKING') ? 0.4 : 1,
-            cursor: (!inputText.trim() || assistantStatus === 'THINKING') ? 'not-allowed' : 'pointer'
-          }}
-        >
-          <Send size={15} />
-        </button>
+        {/* Botón Dinámico Send / Stop (Estilo Gemini) */}
+        {isBusy ? (
+          <button
+            type="button"
+            onClick={onStop}
+            className="hud-btn hud-btn-danger"
+            style={{
+              padding: '8px 14px',
+              backgroundColor: 'rgba(255, 75, 75, 0.2)',
+              borderColor: 'rgba(255, 75, 75, 0.7)',
+              boxShadow: '0 0 12px rgba(255, 75, 75, 0.4)',
+              cursor: 'pointer'
+            }}
+            title="Detener procesamiento / habla (Stop)"
+          >
+            <Square size={14} fill="currentColor" color="#ff4b4b" />
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="hud-btn"
+            disabled={!inputText.trim()}
+            style={{
+              padding: '8px 14px',
+              opacity: !inputText.trim() ? 0.4 : 1,
+              cursor: !inputText.trim() ? 'not-allowed' : 'pointer'
+            }}
+            title="Enviar orden"
+          >
+            <Send size={15} />
+          </button>
+        )}
       </form>
 
       {/* 4. Barra de arrastre para redimensionar el panel */}

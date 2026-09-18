@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { AppSettings } from '../types';
-import { Keyboard, Mic, Server, Save, RotateCcw, Check } from 'lucide-react';
+import { AppSettings, PttMode } from '../types';
+import { Keyboard, Mic, Server, Save, RotateCcw, Check, Volume2, Play, Sparkles } from 'lucide-react';
+import { speechSynthesisService } from '../services/speechSynthesis';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -16,6 +17,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [formData, setFormData] = useState<AppSettings>({ ...settings });
   const [isRecordingKey, setIsRecordingKey] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [isPlayingTestVoice, setIsPlayingTestVoice] = useState(false);
+
+  // Cargar lista de voces disponibles en el sistema operativo
+  useEffect(() => {
+    const updateVoices = () => {
+      const voices = speechSynthesisService.getVoices();
+      setAvailableVoices(voices);
+    };
+
+    updateVoices();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+  }, []);
 
   // Escuchador para grabar nueva tecla de atajo
   useEffect(() => {
@@ -25,7 +41,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       e.preventDefault();
       e.stopPropagation();
 
-      const code = e.code; // ej: 'Numpad3', 'KeyV', 'Space'
+      const code = e.code;
       let displayName = code;
 
       if (code.startsWith('Numpad')) {
@@ -66,9 +82,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       modelName: 'qwen2.5:7b',
       temperature: 0.2,
       audioSensitivity: 80,
-      autoSpeakResponse: false
+      autoSpeakResponse: false,
+      pttMode: 'hold',
+      ttsVoiceURI: '',
+      ttsRate: 1.05,
+      ttsPitch: 1.0,
+      soundEffects: true
     };
     setFormData(defaults);
+  };
+
+  const handleTestVoice = () => {
+    if (isPlayingTestVoice) {
+      speechSynthesisService.cancelSpeech();
+      setIsPlayingTestVoice(false);
+      return;
+    }
+
+    setIsPlayingTestVoice(true);
+    speechSynthesisService.speak('Sistemas vocales calibrados y listos para interactuar. ¿En qué puedo asistirle hoy?', {
+      voiceURI: formData.ttsVoiceURI,
+      rate: formData.ttsRate,
+      pitch: formData.ttsPitch,
+      onStart: () => setIsPlayingTestVoice(true),
+      onEnd: () => setIsPlayingTestVoice(false),
+      onError: () => setIsPlayingTestVoice(false)
+    });
   };
 
   return (
@@ -110,15 +149,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <form onSubmit={handleSubmit} style={{
         flex: 1,
         overflowY: 'auto',
-        padding: '28px 36px',
+        padding: '24px 36px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '28px',
+        gap: '24px',
         maxWidth: '850px',
         margin: '0 auto',
         width: '100%'
       }}>
-        {/* SECCIÓN 1: ATAJO DE TECLADO GLOBAL */}
+        {/* SECCIÓN 1: CONTROL POR VOZ Y PUSH-TO-TALK */}
         <div style={{
           padding: '18px 20px',
           borderRadius: 'var(--radius-sm)',
@@ -129,7 +168,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           gap: '14px'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Keyboard size={16} color="var(--cyan-neon)" />
+            <Mic size={16} color="var(--cyan-neon)" />
             <h3 style={{
               fontFamily: 'var(--font-hud)',
               fontSize: '13px',
@@ -137,15 +176,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               margin: 0,
               letterSpacing: '1px'
             }}>
-              1. ATAJO GLOBAL DE VOZ (MICROFONO)
+              1. ENTRADA DE VOZ (PUSH-TO-TALK // STT)
             </h3>
           </div>
 
           <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
-            Pulsa este atajo para activar el micrófono y hablar con Jarvis en cualquier momento.
+            Configura el atajo de teclado y el comportamiento del micrófono para dictar órdenes a Jarvis.
           </p>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '4px' }}>
             <div style={{
               padding: '10px 24px',
               borderRadius: '4px',
@@ -175,9 +214,264 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {isRecordingKey ? 'CANCELAR' : 'GRABAR NUEVO ATAJO'}
             </button>
           </div>
+
+          {/* Selector de Modo PTT */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginTop: '6px' }}>
+            <label
+              onClick={() => setFormData({ ...formData, pttMode: 'hold' as PttMode })}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 14px',
+                borderRadius: '4px',
+                backgroundColor: formData.pttMode === 'hold' ? 'rgba(0, 242, 255, 0.12)' : 'rgba(4, 18, 38, 0.4)',
+                border: `1px solid ${formData.pttMode === 'hold' ? 'var(--cyan-neon)' : 'rgba(0, 242, 255, 0.15)'}`,
+                cursor: 'pointer'
+              }}
+            >
+              <input
+                type="radio"
+                name="pttMode"
+                checked={formData.pttMode === 'hold'}
+                onChange={() => setFormData({ ...formData, pttMode: 'hold' })}
+                style={{ accentColor: 'var(--cyan-neon)' }}
+              />
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>Mantener para hablar (Hold)</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Habla mientras mantienes la tecla o botón</div>
+              </div>
+            </label>
+
+            <label
+              onClick={() => setFormData({ ...formData, pttMode: 'toggle' as PttMode })}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 14px',
+                borderRadius: '4px',
+                backgroundColor: formData.pttMode === 'toggle' ? 'rgba(0, 242, 255, 0.12)' : 'rgba(4, 18, 38, 0.4)',
+                border: `1px solid ${formData.pttMode === 'toggle' ? 'var(--cyan-neon)' : 'rgba(0, 242, 255, 0.15)'}`,
+                cursor: 'pointer'
+              }}
+            >
+              <input
+                type="radio"
+                name="pttMode"
+                checked={formData.pttMode === 'toggle'}
+                onChange={() => setFormData({ ...formData, pttMode: 'toggle' })}
+                style={{ accentColor: 'var(--cyan-neon)' }}
+              />
+              <div>
+                <div style={{ fontSize: '12px', fontWeight: 600, color: '#fff' }}>Pulsar para alternar (Toggle)</div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Pulsa una vez para iniciar y otra para enviar</div>
+              </div>
+            </label>
+          </div>
         </div>
 
-        {/* SECCIÓN 2: WEBSOCKET & LLM */}
+        {/* SECCIÓN 2: RESPUESTA POR VOZ (TEXT-TO-SPEECH // TTS) */}
+        <div style={{
+          padding: '18px 20px',
+          borderRadius: 'var(--radius-sm)',
+          backgroundColor: 'rgba(4, 16, 32, 0.5)',
+          border: '1px solid var(--cyan-border)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Volume2 size={16} color="var(--cyan-neon)" />
+              <h3 style={{
+                fontFamily: 'var(--font-hud)',
+                fontSize: '13px',
+                color: 'var(--cyan-neon)',
+                margin: 0,
+                letterSpacing: '1px'
+              }}>
+                2. SÍNTESIS Y RESPUESTA VOCAL (TTS)
+              </h3>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleTestVoice}
+              className="hud-btn"
+              style={{
+                padding: '6px 14px',
+                fontSize: '11px',
+                borderColor: isPlayingTestVoice ? 'var(--amber-accent)' : 'var(--cyan-border)',
+                backgroundColor: isPlayingTestVoice ? 'rgba(255, 183, 0, 0.2)' : 'rgba(0, 242, 255, 0.08)'
+              }}
+            >
+              <Play size={12} className={isPlayingTestVoice ? 'animate-pulse-core' : ''} />
+              <span>{isPlayingTestVoice ? 'DETENER PRUEBA' : 'PROBAR VOZ'}</span>
+            </button>
+          </div>
+
+          {/* Toggle Auto Speak Response */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 14px',
+            backgroundColor: 'rgba(0, 242, 255, 0.04)',
+            borderRadius: '4px',
+            border: '1px solid rgba(0, 242, 255, 0.15)'
+          }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>
+                Respuesta por Voz Automática
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Jarvis leerá automáticamente en voz alta sus respuestas.
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={formData.autoSpeakResponse}
+                onChange={e => setFormData({ ...formData, autoSpeakResponse: e.target.checked })}
+                style={{ width: '18px', height: '18px', accentColor: 'var(--cyan-neon)' }}
+              />
+            </label>
+          </div>
+
+          {/* Selector de Voz del Sistema Operativo */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+              VOZ DEL SISTEMA OPERATIVO:
+            </label>
+            <select
+              value={formData.ttsVoiceURI}
+              onChange={e => setFormData({ ...formData, ttsVoiceURI: e.target.value })}
+              style={{
+                backgroundColor: 'rgba(4, 18, 38, 0.9)',
+                border: '1px solid var(--cyan-border)',
+                borderRadius: '4px',
+                padding: '8px 12px',
+                color: '#fff',
+                fontFamily: 'var(--font-sans)',
+                fontSize: '13px',
+                outline: 'none'
+              }}
+            >
+              <option value="">Voz Predeterminada en Español</option>
+              {availableVoices.map(voice => (
+                <option key={voice.voiceURI} value={voice.voiceURI}>
+                  {voice.name} ({voice.lang}) {voice.default ? '★' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Sliders de Velocidad y Tono */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                VELOCIDAD DE HABLA: {formData.ttsRate}x
+              </label>
+              <input
+                type="range"
+                min="0.75"
+                max="1.4"
+                step="0.05"
+                value={formData.ttsRate}
+                onChange={e => setFormData({ ...formData, ttsRate: parseFloat(e.target.value) })}
+                style={{ accentColor: 'var(--cyan-neon)', marginTop: '4px' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label style={{ fontSize: '12px', fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                TONO DE VOZ (PITCH): {formData.ttsPitch}
+              </label>
+              <input
+                type="range"
+                min="0.8"
+                max="1.2"
+                step="0.05"
+                value={formData.ttsPitch}
+                onChange={e => setFormData({ ...formData, ttsPitch: parseFloat(e.target.value) })}
+                style={{ accentColor: 'var(--cyan-neon)', marginTop: '4px' }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* SECCIÓN 3: EFECTOS SONOROS Y FEEDBACK HUD */}
+        <div style={{
+          padding: '18px 20px',
+          borderRadius: 'var(--radius-sm)',
+          backgroundColor: 'rgba(4, 16, 32, 0.5)',
+          border: '1px solid var(--cyan-border)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '14px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Sparkles size={16} color="var(--cyan-neon)" />
+            <h3 style={{
+              fontFamily: 'var(--font-hud)',
+              fontSize: '13px',
+              color: 'var(--cyan-neon)',
+              margin: 0,
+              letterSpacing: '1px'
+            }}>
+              3. FEEDBACK HUD & EFECTOS DE SONIDO
+            </h3>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 14px',
+            backgroundColor: 'rgba(0, 242, 255, 0.04)',
+            borderRadius: '4px',
+            border: '1px solid rgba(0, 242, 255, 0.15)'
+          }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: '#fff' }}>
+                Efectos Sonoros Procedurales HUD
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Bips acústicos futuristas al abrir/cerrar micrófono y al completar acciones.
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={formData.soundEffects}
+                onChange={e => setFormData({ ...formData, soundEffects: e.target.checked })}
+                style={{ width: '18px', height: '18px', accentColor: 'var(--cyan-neon)' }}
+              />
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Sensibilidad de Reacción del Arc Reactor
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Ajusta la intensidad con la que los anillos holográficos pulsan con tu voz.
+              </div>
+            </div>
+            <input
+              type="range"
+              min="20"
+              max="150"
+              value={formData.audioSensitivity}
+              onChange={e => setFormData({ ...formData, audioSensitivity: parseInt(e.target.value) })}
+              style={{ accentColor: 'var(--teal-accent)', width: '160px' }}
+            />
+          </div>
+        </div>
+
+        {/* SECCIÓN 4: MOTOR DE RAZONAMIENTO */}
         <div style={{
           padding: '18px 20px',
           borderRadius: 'var(--radius-sm)',
@@ -196,7 +490,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               margin: 0,
               letterSpacing: '1px'
             }}>
-              2. CONEXIÓN AL MOTOR DE RAZONAMIENTO
+              4. CONEXIÓN AL MOTOR DE RAZONAMIENTO
             </h3>
           </div>
 
@@ -257,49 +551,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 style={{ accentColor: 'var(--cyan-neon)', marginTop: '8px' }}
               />
             </div>
-          </div>
-        </div>
-
-        {/* SECCIÓN 3: VOZ & AUDIO */}
-        <div style={{
-          padding: '18px 20px',
-          borderRadius: 'var(--radius-sm)',
-          backgroundColor: 'rgba(4, 16, 32, 0.5)',
-          border: '1px solid var(--cyan-border)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '14px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Mic size={16} color="var(--cyan-neon)" />
-            <h3 style={{
-              fontFamily: 'var(--font-hud)',
-              fontSize: '13px',
-              color: 'var(--cyan-neon)',
-              margin: 0,
-              letterSpacing: '1px'
-            }}>
-              3. PARÁMETROS DE AUDIO (STT / TTS)
-            </h3>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                Sensibilidad de Reacción del Arc Reactor
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                Ajusta cuánto pulsan los anillos holográficos con el volumen de tu voz.
-              </div>
-            </div>
-            <input
-              type="range"
-              min="20"
-              max="150"
-              value={formData.audioSensitivity}
-              onChange={e => setFormData({ ...formData, audioSensitivity: parseInt(e.target.value) })}
-              style={{ accentColor: 'var(--teal-accent)', width: '160px' }}
-            />
           </div>
         </div>
 
