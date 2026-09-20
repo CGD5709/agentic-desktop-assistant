@@ -35,6 +35,34 @@ class ToolExecutionResponsePayload(BaseModel):
     error_code: Optional[str] = Field(None, alias="errorCode")
 
 
+class ConfirmationRequestPayload(BaseModel):
+    """Payload dispatched over WebSocket when the agent requests user authorization for a critical tool."""
+    type: str = "confirmation_request"
+    confirmation_id: str = Field(..., alias="confirmationId")
+    tool_name: str = Field(..., alias="toolName")
+    arguments: Dict[str, Any]
+    title: str
+    message: str
+    severity: str = "CRITICAL"
+    target: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
+class ConfirmationResponsePayload(BaseModel):
+    """Payload received from client confirming or denying a critical tool authorization request."""
+    type: str = "confirmation_response"
+    confirmation_id: str = Field(..., alias="confirmationId")
+    confirmed: bool = False
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
 class EventEnvelope(BaseModel):
     """Standard message envelope for inter-process communication."""
     metadata: EventMetadata

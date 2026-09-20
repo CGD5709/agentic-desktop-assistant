@@ -95,10 +95,20 @@ class EventEnvelopeSerializationTest {
                 Map.of("type", "object")
         );
 
-        ToolRegistryPayload registryPayload = new ToolRegistryPayload(List.of(definition));
+        ToolDefinition criticalDef = new ToolDefinition(
+                "matar_proceso",
+                "Mata un proceso",
+                Map.of("type", "object"),
+                true
+        );
+
+        ToolRegistryPayload registryPayload = new ToolRegistryPayload(List.of(definition, criticalDef));
         String json = objectMapper.writeValueAsString(registryPayload);
 
         assertThat(json).contains("\"tools\":[");
         assertThat(json).contains("\"name\":\"abrir_sitio_web\"");
+        assertThat(json).contains("\"critical\":false");
+        assertThat(json).contains("\"name\":\"matar_proceso\"");
+        assertThat(json).contains("\"critical\":true");
     }
 }

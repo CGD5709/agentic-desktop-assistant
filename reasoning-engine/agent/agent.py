@@ -11,6 +11,8 @@ from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
 
 from rabbitmq import RabbitMQClient
+from services.confirmation_manager import ConfirmationManager
+from services.connection_manager import WebSocketConnectionManager
 from .memory.async_manager import AsyncMemoryManager
 from .memory.profile_store import ProfileStore
 from .memory.short_term import SessionSummarizer
@@ -61,6 +63,8 @@ class AgentRuntime:
     memory_manager: AsyncMemoryManager
     session_summarizer: SessionSummarizer
     dynamic_tools: List[Dict[str, Any]] = field(default_factory=list)
+    confirmation_manager: ConfirmationManager = field(default_factory=ConfirmationManager)
+    ws_manager: Optional[WebSocketConnectionManager] = None
     llm: Optional[BaseChatModel] = None
 
     async def initialize(self) -> None:
@@ -144,6 +148,8 @@ def create_agent_runtime(
     max_dialogue_tokens: int = DEFAULT_MAX_DIALOGUE_TOKENS,
     mq_client: Optional[RabbitMQClient] = None,
     llm: Optional[BaseChatModel] = None,
+    confirmation_manager: Optional[ConfirmationManager] = None,
+    ws_manager: Optional[WebSocketConnectionManager] = None,
 ) -> AgentRuntime:
     """
     Construct an isolated AgentRuntime with clean dependency injection.
@@ -161,6 +167,8 @@ def create_agent_runtime(
         max_dialogue_tokens: History token budget for conversational context assembly.
         mq_client: Optional pre-configured RabbitMQ client instance.
         llm: Optional pre-configured language model instance.
+        confirmation_manager: Optional pre-configured ConfirmationManager instance for HITL.
+        ws_manager: Optional pre-configured WebSocketConnectionManager for frontend modals.
 
     Returns:
         Fully configured AgentRuntime container.
@@ -175,6 +183,7 @@ def create_agent_runtime(
         num_ctx=llm_num_ctx,
     )
     s_summarizer = SessionSummarizer()
+    c_manager = confirmation_manager if confirmation_manager is not None else ConfirmationManager()
     tools: List[Dict[str, Any]] = []
 
     chat_llm = (
@@ -211,7 +220,12 @@ def create_agent_runtime(
         system_prompt=COMMAND_PROMPT,
         max_dialogue_tokens=max_dialogue_tokens,
     )
-    action_node = ActionNode(mq_client=client)
+    action_node = ActionNode(
+        mq_client=client,
+        dynamic_tools=tools,
+        confirmation_manager=c_manager,
+        ws_manager=ws_manager,
+    )
     summarize_node = SummarizeNode(
         llm=chat_llm,
         profile_store=p_store,
@@ -238,6 +252,8 @@ def create_agent_runtime(
         memory_manager=m_manager,
         session_summarizer=s_summarizer,
         dynamic_tools=tools,
+        confirmation_manager=c_manager,
+        ws_manager=ws_manager,
         llm=chat_llm,
     )
 

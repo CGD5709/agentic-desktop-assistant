@@ -1,7 +1,10 @@
+import { ConfirmationRequest } from '../types';
+
 type StatusCallback = (status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING') => void;
 type MessageCallback = (content: string, speechText?: string) => void;
 type AssistantStatusCallback = (state: 'THINKING' | 'IDLE') => void;
 type ToolsCallback = (tools: string[]) => void;
+type ConfirmationCallback = (request: ConfirmationRequest) => void;
 
 export class JarvisWebSocketClient {
   private ws: WebSocket | null = null;
@@ -15,6 +18,7 @@ export class JarvisWebSocketClient {
   private onMessageListeners: Set<MessageCallback> = new Set();
   private onAssistantStatusListeners: Set<AssistantStatusCallback> = new Set();
   private onToolsListeners: Set<ToolsCallback> = new Set();
+  private onConfirmationListeners: Set<ConfirmationCallback> = new Set();
 
   constructor(url: string = 'ws://localhost:8000/ws') {
     this.url = url;
@@ -128,6 +132,20 @@ export class JarvisWebSocketClient {
     return true;
   }
 
+  public sendConfirmationResponse(confirmationId: string, confirmed: boolean) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn('[WS] No conectado al enviar respuesta de confirmación.');
+      return false;
+    }
+
+    this.ws.send(JSON.stringify({
+      type: 'confirmation_response',
+      confirmation_id: confirmationId,
+      confirmed: confirmed
+    }));
+    return true;
+  }
+
   private handleIncomingMessage(data: any) {
     switch (data.type) {
       case 'assistant_message':
@@ -145,6 +163,19 @@ export class JarvisWebSocketClient {
         if (data.tools) {
           this.onToolsListeners.forEach(cb => cb(data.tools));
         }
+        break;
+      case 'confirmation_request':
+        const req: ConfirmationRequest = {
+          confirmationId: data.confirmation_id,
+          toolName: data.tool_name,
+          arguments: data.arguments || {},
+          title: data.title || 'Confirmación de Acción Crítica',
+          message: data.message || '¿Deseas permitir esta operación?',
+          severity: data.severity || 'CRITICAL',
+          target: data.target,
+          details: data.details || {},
+        };
+        this.onConfirmationListeners.forEach(cb => cb(req));
         break;
       case 'pong':
         // Heartbeat respondido
@@ -198,6 +229,11 @@ export class JarvisWebSocketClient {
   public onTools(cb: ToolsCallback) {
     this.onToolsListeners.add(cb);
     return () => this.onToolsListeners.delete(cb);
+  }
+
+  public onConfirmationRequest(cb: ConfirmationCallback) {
+    this.onConfirmationListeners.add(cb);
+    return () => this.onConfirmationListeners.delete(cb);
   }
 
   private notifyStatus(status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING') {

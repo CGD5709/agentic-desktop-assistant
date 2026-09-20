@@ -85,5 +85,22 @@ class ToolsValidationTest {
         var definition = processAnalyzerTool.getDefinition();
         assertThat(definition.name()).isEqualTo("analizar_rendimiento_procesos");
         assertThat(definition.parameters()).containsKey("properties");
+        assertThat(definition.critical()).isFalse();
+    }
+
+    @Test
+    @DisplayName("KillProcessTool should be marked as critical while others are non-critical")
+    void toolsCriticalityDeclarationShouldBeAccurate() {
+        assertThat(killProcessTool.isCritical()).isTrue();
+        assertThat(killProcessTool.getDefinition().critical()).isTrue();
+
+        assertThat(openWebTool.isCritical()).isFalse();
+        assertThat(openWebTool.getDefinition().critical()).isFalse();
+
+        assertThat(portScannerTool.isCritical()).isFalse();
+        assertThat(portScannerTool.getDefinition().critical()).isFalse();
+
+        assertThat(processAnalyzerTool.isCritical()).isFalse();
+        assertThat(processAnalyzerTool.getDefinition().critical()).isFalse();
     }
 }

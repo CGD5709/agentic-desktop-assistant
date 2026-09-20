@@ -155,8 +155,13 @@ Every node in the graph embodies the **Single Responsibility Principle (SRP)**:
 * **Turn Persistence**: If the model decides no tools are required, records the turn immediately; otherwise, defers turn recording until tool execution completes.
 
 ### `ActionNode`
-* **Role**: Distributed boundary between LLM reasoning and physical OS execution.
-* **Mechanism**: Iterates over `AIMessage.tool_calls`, translates each into a strongly typed `ToolExecutionRequestPayload`, wraps it inside an `EventEnvelope` with a unique correlation ID, and dispatches it over RabbitMQ via RPC (`send_and_wait`).
+* **Role**: Distributed boundary between LLM reasoning and physical OS execution, and primary **Human-in-the-Loop (HITL)** safeguard.
+* **Mechanism**: Iterates over `AIMessage.tool_calls`. For each tool invocation:
+  1. Checks if the tool is flagged as `critical` in the registered tool manifest.
+  2. If critical, generates a contextual confirmation message via [`agent/hitl.py`](./hitl.py) using the tool's `confirmation_template` and parameters.
+  3. Dispatches a `confirmation_request` over WebSocket to the frontend and suspends execution using [`ConfirmationManager`](../services/confirmation_manager.py).
+  4. If approved by the user, wraps the arguments into a `ToolExecutionRequestPayload` inside an `EventEnvelope` and executes via RabbitMQ RPC (`send_and_wait`).
+  5. If rejected, skips AMQP publication and immediately constructs a localized `ToolMessage` indicating user cancellation.
 * **Resilience**: Contains explicit type validation (`TypeError`), null-safety guards against RPC timeouts, and formats responses into standard LangChain `ToolMessage` instances.
 
 ### `SummarizeNode`
@@ -181,7 +186,9 @@ Both functions leverage strongly typed `NodeName(str, Enum)` and `Intent(str, En
 
 ## 7. Event-Driven Messaging Contracts (`models.py`)
 
-Inter-service communication between the Python Reasoning Engine and the Java Execution Service is governed by strict Pydantic schemas in [models.py](./models.py):
+Inter-service communication and WebSocket interactions are governed by strict Pydantic schemas in [models.py](./models.py):
+
+### 7.1 Inter-Service AMQP Envelope (`EventEnvelope`)
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -200,9 +207,22 @@ Inter-service communication between the Python Reasoning Engine and the Java Exe
 └────────────────────────────────────────────────────────┘
 ```
 
+### 7.2 Human-in-the-Loop WebSocket Contracts
+
+* **`ConfirmationRequestPayload`**: Broadcast from server to client to request manual authorization:
+  * `type: "confirmation_request"`
+  * `correlation_id: str`
+  * `tool_name: str`
+  * `message: str`
+  * `parameters: Dict[str, Any]`
+* **`ConfirmationResponsePayload`**: Ingested from client to server to resolve the pending future:
+  * `type: "confirmation_response"`
+  * `correlation_id: str`
+  * `approved: bool`
+
 ### Distributed Tracing & Correlation
-* `correlationId` links each individual LLM `tool_call["id"]` directly to the execution request and response envelopes across RabbitMQ queues.
-* Strict schema validation ensures zero serialization mismatches across language boundaries (Python <-> Java).
+* `correlationId` links each individual LLM `tool_call["id"]` directly to the execution request and response envelopes across RabbitMQ queues and WebSocket confirmation promises.
+* Strict schema validation ensures zero serialization mismatches across language boundaries (Python <-> Java <-> TypeScript).
 
 ---
 
@@ -239,6 +259,9 @@ The entire `agent` module is validated via comprehensive automated unit tests in
 | `test_command_node_with_tools` | Verifies dynamic tool schema binding and `tool_calls` generation. |
 | `test_action_node` | Tests RPC dispatching, error wrapping, and response collection. |
 | `test_action_node_validation_and_null_safety` | Verifies `TypeError` on invalid states and graceful RPC timeout handling. |
+| `test_action_node_critical_tool_approved` | Verifies HITL interception, confirmation request broadcast, and RPC execution on approval. |
+| `test_action_node_critical_tool_rejected` | Verifies that user rejection cancels RPC execution without emitting RabbitMQ messages. |
+| `test_hitl_context_generation` | Validates template interpolation and fallback parameter formatting in `agent/hitl.py`. |
 | `test_summarize_node` | Validates conversational synthesis of technical tool outputs. |
 | `test_agent_graph_factory` | Verifies node registration and edge compilation in `create_agent_graph`. |
 | `test_agent_runtime_factory_and_lifecycle` | Validates isolated runtime bootstrapping, DI, and `initialize()`/`close()`. |

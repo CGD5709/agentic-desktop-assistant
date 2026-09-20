@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
 from agent import AgentRuntime, AgentState
+from agent.models import ConfirmationResponsePayload
 from agent.voice_cleaner import clean_text_for_speech
 from logger import clear_log_context, get_logger, set_log_context
 from services.connection_manager import WebSocketConnectionManager
@@ -37,15 +38,42 @@ async def handle_ping_message(websocket: WebSocket, payload: Dict[str, Any]) -> 
     await ws_manager.send_personal({"type": "pong"}, websocket)
 
 
+async def handle_confirmation_response(websocket: WebSocket, payload: Dict[str, Any]) -> None:
+    """
+    Process client response to a Human-in-the-Loop confirmation request.
+
+    Args:
+        websocket: Active client WebSocket session.
+        payload: Payload containing 'confirmation_id' and boolean 'confirmed'.
+    """
+    runtime: Optional[AgentRuntime] = getattr(websocket.app.state, "runtime", None)
+    if runtime is None or runtime.confirmation_manager is None:
+        logger.warning("Confirmation response received but ConfirmationManager is not initialized.")
+        return
+
+    try:
+        response_model = ConfirmationResponsePayload.model_validate(payload)
+        runtime.confirmation_manager.resolve_confirmation(
+            response_model.confirmation_id,
+            response_model.confirmed
+        )
+    except Exception as e:
+        logger.warning("Invalid confirmation response payload: %s (%s)", payload, e)
+
+
 async def handle_stop_message(websocket: WebSocket, payload: Dict[str, Any]) -> None:
     """
-    Cancel active reasoning execution upon receiving explicit stop command from user.
+    Cancel active reasoning execution and pending confirmations upon receiving explicit stop command from user.
 
     Args:
         websocket: Active client WebSocket session.
         payload: Received stop payload.
     """
     ws_manager: WebSocketConnectionManager = websocket.app.state.ws_manager
+    runtime: Optional[AgentRuntime] = getattr(websocket.app.state, "runtime", None)
+    if runtime and runtime.confirmation_manager:
+        runtime.confirmation_manager.cancel_all()
+
     task = _active_tasks.get(websocket)
     if task and not task.done():
         logger.info("Cancelling active LangGraph task upon user request.")
@@ -216,18 +244,24 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 await handle_ping_message(websocket, msg)
             elif msg_type == "user_message":
                 await handle_user_message(websocket, msg)
+            elif msg_type == "confirmation_response":
+                await handle_confirmation_response(websocket, msg)
             elif msg_type in ("stop", "cancel"):
                 await handle_stop_message(websocket, msg)
             else:
                 logger.warning("Unrecognized or unhandled message type: '%s'", msg_type)
 
     except WebSocketDisconnect:
+        if runtime and runtime.confirmation_manager:
+            runtime.confirmation_manager.cancel_all()
         task = _active_tasks.pop(websocket, None)
         if task and not task.done():
             task.cancel()
         ws_manager.disconnect(websocket)
     except Exception as e:
         logger.warning("Client session error: %s", e)
+        if runtime and runtime.confirmation_manager:
+            runtime.confirmation_manager.cancel_all()
         task = _active_tasks.pop(websocket, None)
         if task and not task.done():
             task.cancel()

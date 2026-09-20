@@ -14,3 +14,4 @@ This directory maintains the formal Architecture Decision Records for the distri
 | [ADR-006](./ADR-006-lifecycle-inversion-of-control-bidirectional-state.md) | Inversion of Control Runtime Container and Bidirectional WebSocket State | Accepted | 2026-08-15 |
 | [ADR-007](./ADR-007-distributed-tracing-and-asynchronous-observability.md) | Distributed Tracing and Asynchronous Observability | Accepted | 2026-09-15 |
 | [ADR-008](./ADR-008-cascaded-audio-transducers-vs-native-audio-llm.md) | Cascaded Audio Transducers vs. Native End-to-End Multimodal Audio LLMs | Accepted | 2026-09-18 |
+| [ADR-009](./ADR-009-human-in-the-loop-safeguard-architecture.md) | Human-in-the-Loop Safeguard Architecture for Critical OS Tools | Accepted | 2026-09-20 |

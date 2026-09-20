@@ -195,3 +195,23 @@ def test_settings_cors_origins_parsing():
     s2 = Settings(ALLOWED_ORIGINS='["http://example.com"]')
     assert s2.ALLOWED_ORIGINS == ["http://example.com"]
 
+
+def test_websocket_confirmation_response_dispatcher(test_app_state):
+    """Verify that confirmation_response is routed to confirmation_manager."""
+    client = TestClient(app)
+    mock_runtime = test_app_state["runtime"]
+    mock_conf_manager = MagicMock()
+    mock_runtime.confirmation_manager = mock_conf_manager
+
+    with client.websocket_connect("/ws") as ws:
+        greeting = ws.receive_json()
+        assert greeting["type"] == "connected"
+
+        ws.send_json({
+            "type": "confirmation_response",
+            "confirmation_id": "conf-test-123",
+            "confirmed": True,
+        })
+
+    mock_conf_manager.resolve_confirmation.assert_called_once_with("conf-test-123", True)
+

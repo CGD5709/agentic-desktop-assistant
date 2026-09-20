@@ -82,8 +82,8 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
-    runtime = create_agent_runtime()
     ws_manager = WebSocketConnectionManager()
+    runtime = create_agent_runtime(ws_manager=ws_manager)
     config: RunnableConfig = {"configurable": {"thread_id": "sesion-produccion"}}
 
     app.state.runtime = runtime

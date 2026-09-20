@@ -27,6 +27,11 @@ The **Desktop Client** is the interactive presentation layer and Heads-Up Displa
   * `THINKING`: High-speed core spin indicating cognitive reasoning and tool execution.
   * `SPEAKING`: Radiant vocal emission waves synchronized with speech playback.
 
+### 1.4 Human-in-the-Loop (HITL) Safeguards & OS Notifications
+* **Cybernetic Confirmation Modal**: When the reasoning engine intercepts a critical tool invocation, [`ConfirmationModal.tsx`](src/components/ConfirmationModal.tsx) presents a high-contrast HUD alert detailing the tool name, contextual message, and parameter table.
+* **Keyboard Hotkeys**: Press <kbd>Enter</kbd> to authorize execution or <kbd>Escape</kbd> to cancel the operation immediately.
+* **Background Windows Notifications**: [`notifications.ts`](src/services/notifications.ts) utilizes the Web Notifications API to trigger native Windows desktop alerts when a confirmation request arrives while the assistant window is minimized or in the background.
+
 ---
 
 ## 2. Directory Structure
@@ -35,25 +40,27 @@ The **Desktop Client** is the interactive presentation layer and Heads-Up Displa
 desktop-client/
 ├── src/
 │   ├── components/
-│   │   ├── ArcReactorHUD.tsx    # Central holographic visualizer with 4-state audio telemetry
-│   │   ├── ChatPanel.tsx        # Resizable chat log, interim speech banner, Stop controller
-│   │   ├── HeaderHUD.tsx        # System status telemetry, digital clock, quick mic toggle
-│   │   ├── SettingsView.tsx     # OS voice picker, PTT mode toggle, rate/pitch sliders, sound FX
-│   │   └── TasksPanel.tsx       # System diagnostics and active background task log
+│   │   ├── ArcReactorHUD.tsx       # Central holographic visualizer with 4-state audio telemetry
+│   │   ├── ChatPanel.tsx           # Resizable chat log, interim speech banner, Stop controller
+│   │   ├── ConfirmationModal.tsx   # Cybernetic Human-in-the-Loop authorization modal
+│   │   ├── HeaderHUD.tsx           # System status telemetry, digital clock, quick mic toggle
+│   │   ├── SettingsView.tsx        # OS voice picker, PTT mode toggle, rate/pitch sliders, sound FX
+│   │   └── TasksPanel.tsx          # System diagnostics and active background task log
 │   ├── hooks/
-│   │   └── useVoice.ts          # Unified orchestrator for PTT, STT, TTS, Web Audio analysis, and hotkeys
+│   │   └── useVoice.ts             # Unified orchestrator for PTT, STT, TTS, Web Audio analysis, and hotkeys
 │   ├── services/
-│   │   ├── audioFeedback.ts     # Procedural Web Audio API sound cue synthesizer
-│   │   ├── speechRecognition.ts # Web Speech Recognition API wrapper (STT)
-│   │   ├── speechSynthesis.ts   # Web Speech Synthesis API wrapper (TTS)
-│   │   └── websocket.ts         # Full-duplex WebSocket client with heartbeat and stop signaling
-│   ├── types.ts                 # TypeScript interfaces, AppSettings, and VoiceState definitions
-│   ├── App.tsx                  # Root component binding settings, voice pipeline, and HUD state
-│   ├── main.tsx                 # React DOM entrypoint
-│   └── index.css                # HUD styling, glassmorphism, and neon CSS custom properties
-├── index.html                   # HTML5 template with dark theme base
-├── package.json                 # Dependencies and build scripts
-└── vite.config.ts               # Vite bundler configuration
+│   │   ├── audioFeedback.ts        # Procedural Web Audio API sound cue synthesizer
+│   │   ├── notifications.ts        # Web Notifications API service for Windows background alerts
+│   │   ├── speechRecognition.ts    # Web Speech Recognition API wrapper (STT)
+│   │   ├── speechSynthesis.ts      # Web Speech Synthesis API wrapper (TTS)
+│   │   └── websocket.ts            # Full-duplex WebSocket client with heartbeat, stop, and confirmation signaling
+│   ├── types.ts                    # TypeScript interfaces, AppSettings, VoiceState, and ConfirmationRequest
+│   ├── App.tsx                     # Root component binding settings, voice pipeline, and HUD state
+│   ├── main.tsx                    # React DOM entrypoint
+│   └── index.css                   # HUD styling, glassmorphism, and neon CSS custom properties
+├── index.html                      # HTML5 template with dark theme base
+├── package.json                    # Dependencies and build scripts
+└── vite.config.ts                  # Vite bundler configuration
 ```
 
 ---
@@ -64,12 +71,14 @@ The client maintains a persistent WebSocket connection to the Reasoning Engine a
 
 ### Inbound Events to Backend
 * `user_message`: Sends typed or voice-transcribed prompt (`{ "type": "user_message", "content": "..." }`).
+* `confirmation_response`: Resolves pending authorization for critical tools (`{ "type": "confirmation_response", "correlation_id": "...", "approved": true/false }`).
 * `stop`: Cancels active reasoning graph or speech (`{ "type": "stop" }`).
 * `ping`: Heartbeat probe dispatched periodically every 15 seconds.
 
 ### Outbound Events from Backend
 * `connected`: Initial system handshake containing the loaded tool inventory.
 * `status`: Updates assistant cognitive state (`THINKING` / `IDLE`).
+* `confirmation_request`: Requests human authorization before running critical tools (`{ "type": "confirmation_request", "correlation_id": "...", "tool_name": "...", "message": "...", "parameters": {...} }`).
 * `assistant_message`: Delivers dual-payload response:
   * `content`: Rich Markdown for chat bubble rendering.
   * `speech_text`: Cleaned phonetic text for automatic TTS narration.

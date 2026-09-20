@@ -142,6 +142,7 @@ sequenceDiagram
 1. **Non-blocking**: By performing `await future` in the `send_and_wait` method (see [rabbitmq.py](../../reasoning-engine/rabbitmq.py#L60-L77)), the asyncio event loop remains free to process other incoming events or messages in parallel.
 2. **No Timeout by Design**: The call intentionally omits a timeout to support tools that require manual confirmation or human-in-the-loop workflows, which can take minutes or hours.
 3. **Memory Cleanup**: A `finally` block is used to guarantee that the correlation identifier is removed from the `pending_futures` dictionary, preventing memory leaks if the task is cancelled.
+4. **Human-in-the-Loop (HITL) Pre-Execution Guard**: Tools flagged with `critical=True` in the discovery manifest are intercepted at the cognitive layer (`ActionNode`) *before* invoking `send_and_wait`. If the user rejects the action via the WebSocket interface, no `EXECUTION_REQUEST` message is published to RabbitMQ, keeping `execution_service_queue` and the host operating system entirely unperturbed.
 
 ---
 
@@ -211,7 +212,12 @@ Example request for `abrir_sitio_web`:
 
 1. **`TOOL_REGISTRY_BROADCAST`**:
    Sent by the execution service at startup to broadcast available tools.
-   - **Payload**: Dictionary containing tool definitions and metadata.
+   - **Payload** (`ToolRegistryPayload`): Collection of `ToolDefinition` objects containing:
+     - `name` (String, required): Unique identifier of the tool.
+     - `description` (String, required): Human and LLM readable explanation of capabilities.
+     - `parameters` (Object, required): JSON Schema object defining arguments and validation types.
+     - `critical` (Boolean, optional, default: `false`): Flags whether the tool requires interactive user confirmation before execution.
+     - `confirmationTemplate` (String, optional): Template with `{arg}` placeholders for contextual confirmation messaging.
 
 2. **`EXECUTION_REQUEST`**:
    Sent by the reasoning engine to request a tool execution.

@@ -127,6 +127,16 @@ Dispatched by the frontend when the user clicks the Stop button (Square icon) or
 }
 ```
 
+#### 4. Human-in-the-Loop Confirmation Response (`confirmation_response`)
+Dispatched by the frontend when the user authorizes or rejects the execution of a critical system tool. Resolves the pending `asyncio.Future` in `ConfirmationManager`.
+```json
+{
+  "type": "confirmation_response",
+  "correlation_id": "8f3b23fa-08c3-4d7a-b9c1-7a6c2bb25dfb",
+  "approved": true
+}
+```
+
 ---
 
 ### 3.3 Outbound Message Contracts (Server → Client)
@@ -191,6 +201,20 @@ Broadcast to all active clients whenever the Java Execution Service advertises o
 }
 ```
 
+#### 6. Human-in-the-Loop Confirmation Request (`confirmation_request`)
+Broadcast to active clients when `ActionNode` encounters a critical tool invocation. Triggers the interactive HUD modal and background OS notifications.
+```json
+{
+  "type": "confirmation_request",
+  "correlation_id": "8f3b23fa-08c3-4d7a-b9c1-7a6c2bb25dfb",
+  "tool_name": "matar_proceso",
+  "message": "¿Autoriza forzar el cierre del proceso 'notepad.exe' en el sistema operativo?",
+  "parameters": {
+    "nombre_proceso": "notepad.exe"
+  }
+}
+```
+
 ---
 
 ### 3.4 Client Interaction Sequence
@@ -204,8 +228,12 @@ Client                             Reasoning Engine (FastAPI)               Lang
   │─── {"type": "user_message", "content"}───>│                                      │
   │<── {"type": "status", "state":"THINKING"}─│                                      │
   │                                           │─── ainvoke(state, config) ──────────>│
-  │                                           │                                      │ (Reasoning, Tool
-  │                                           │                                      │  Calls, Summarization)
+  │                                           │                                      │
+  │                                           │   [If Critical Tool Execution]:      │
+  │<── {"type": "confirmation_request", ...}──│<── ActionNode Interception ──────────│
+  │─── {"type": "confirmation_response", ...}>│─── Resolve Future Promise ──────────>│
+  │                                           │                                      │ (RPC Execution &
+  │                                           │                                      │  Summarization)
   │                                           │<── Final Agent State ────────────────│
   │<── {"type": "assistant_message"}──────────│                                      │
   │<── {"type": "status", "state":"IDLE"}─────│                                      │
@@ -227,11 +255,13 @@ reasoning-engine/
 │   └── websockets.py               # WebSocket endpoint & Message Dispatcher pattern
 ├── services/                       # Application & integration services
 │   ├── __init__.py                 # Service exports
+│   ├── confirmation_manager.py     # Asynchronous Human-in-the-Loop future manager
 │   ├── connection_manager.py       # Active WebSocket session registry & broadcasts
 │   └── rabbitmq_listener.py        # RabbitMQ tool discovery consumer & OpenAI converter
 ├── agent/                          # Cognitive orchestration layer (LangGraph)
 │   ├── README.md                   # Detailed Agent Orchestrator documentation
 │   ├── agent.py                    # AgentRuntime container & graph assembly
+│   ├── hitl.py                     # Schema-driven confirmation context generator
 │   ├── models.py                   # Canonical Pydantic contracts (EventEnvelope, AgentState)
 │   ├── prompts.py                  # System prompts (Router, Chat, Command, Summarize)
 │   ├── nodes/                      # Single-responsibility graph nodes
@@ -239,7 +269,7 @@ reasoning-engine/
 │   │   ├── router.py               # RouterNode (Intent classification & semantic RAG)
 │   │   ├── chat.py                 # ChatNode (Direct conversational synthesis)
 │   │   ├── command.py              # CommandNode (Tool-calling reasoning)
-│   │   ├── action.py               # ActionNode (RabbitMQ RPC client dispatcher)
+│   │   ├── action.py               # ActionNode (RabbitMQ RPC client dispatcher & HITL guard)
 │   │   ├── summarize.py            # SummarizeNode (Human synthesis of tool results)
 │   │   └── routing.py              # Conditional edge routers (route_intent, should_use_tools)
 │   └── memory/                     # 4-Tier Memory Subsystem
@@ -256,7 +286,7 @@ reasoning-engine/
 │   └── chroma_db/                  # Level-2 ChromaDB vector index directory
 ├── tests/                          # Automated unit and integration test suite
 │   ├── test_server.py              # API, WebSockets, Dispatcher, and CORS tests
-│   ├── test_nodes.py               # LangGraph nodes and intent routing tests
+│   ├── test_nodes.py               # LangGraph nodes, HITL, and intent routing tests
 │   ├── test_async_manager.py       # Memory consolidation tests
 │   ├── test_vector_store.py        # ChromaDB vector store tests
 │   └── ...                         # Additional memory and integration tests

@@ -1,10 +1,14 @@
 """
 RabbitMQ listener service and tool discovery payload converter.
 """
-import json
-from typing import Any, Awaitable, Callable, Dict, List
+from __future__ import annotations
 
-from agent import AgentRuntime
+import json
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List
+
+if TYPE_CHECKING:
+    from agent import AgentRuntime
+
 from logger import get_logger
 from services.connection_manager import WebSocketConnectionManager
 
@@ -32,6 +36,8 @@ def convert_execution_tools_to_openai_format(
                 "description": tool.get("description", ""),
                 "parameters": tool.get("parameters", {"type": "object", "properties": {}}),
             },
+            "critical": bool(tool.get("critical", False)),
+            "confirmation_template": tool.get("confirmationTemplate") or tool.get("confirmation_template"),
         }
         converted.append(openai_tool)
     return converted

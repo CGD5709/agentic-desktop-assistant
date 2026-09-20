@@ -37,3 +37,14 @@ export interface AppSettings {
   ttsPitch: number;
   soundEffects: boolean;
 }
+
+export interface ConfirmationRequest {
+  confirmationId: string;
+  toolName: string;
+  arguments: Record<string, any>;
+  title: string;
+  message: string;
+  severity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  target?: string;
+  details?: Record<string, any>;
+}

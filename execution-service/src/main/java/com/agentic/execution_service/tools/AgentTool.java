@@ -13,4 +13,12 @@ public interface AgentTool {
     ToolDefinition getDefinition();
 
     String execute(Map<String, Object> arguments) throws Exception;
+
+    /**
+     * Indicates whether this tool performs potentially destructive or sensitive operations
+     * requiring explicit user authorization (Human-in-the-Loop) prior to execution.
+     */
+    default boolean isCritical() {
+        return false;
+    }
 }

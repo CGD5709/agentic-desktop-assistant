@@ -8,9 +8,9 @@ The **Execution Service** is the low-level operating system automation microserv
 
 In the JARVIS distributed architecture, the Execution Service decouples high-level cognitive decision-making from operating system interaction:
 
-* **Zero-Configuration System Discovery**: Broadcasts available tool schemas and JSON Schema validation descriptors over RabbitMQ on application startup, allowing the Python reasoning engine to register tools dynamically without manual synchronisation.
+* **Zero-Configuration System Discovery**: Broadcasts available tool schemas, JSON Schema validation descriptors, safety criticality flags (`critical`), and confirmation message templates over RabbitMQ on application startup, allowing the Python reasoning engine to register tools dynamically without manual synchronisation.
 * **Deterministic RPC Execution**: Listens for inbound tool execution requests, matches the requested tool against an internal registry, runs the operation against the host operating system, and returns correlated responses.
-* **Security & Failure Isolation**: Enforces process termination blacklists (protecting critical infrastructure like Docker, RabbitMQ, and the JVM), guards against shell and command injection vulnerabilities, and bounds process execution times with hard timeouts.
+* **Security & Failure Isolation**: Enforces process termination blacklists (protecting critical infrastructure like Docker, RabbitMQ, and the JVM), guards against shell and command injection vulnerabilities, bounds process execution times with hard timeouts, and marks destructive capabilities for interactive human confirmation.
 * **Resilient Infrastructure Lifecycle**: Decoupled startup lifecycle handles broker unavailability gracefully, allowing automated tests and offline runs to complete without fatal crashes.
 
 ---
@@ -92,7 +92,7 @@ The service maps the inter-service JSON contracts into immutable Java records un
 * **`EventMetadata`**: Carries `eventId`, `correlationId`, `timestamp`, `source`, and `EventType`. Provides the static factory `EventMetadata.now(...)`.
 * **`ToolExecutionRequestPayload`**: Inbound payload containing `toolName` and an immutable `arguments` map.
 * **`ToolExecutionResponsePayload`**: Outbound payload returning `toolName`, `status` (`SUCCESS` or `ERROR`), execution `output`, and an optional `errorCode` (`INVALID_REQUEST`, `TOOL_NOT_FOUND`, `EXECUTION_ERROR`).
-* **`ToolRegistryPayload` & `ToolDefinition`**: Outbound manifest containing the collection of registered tool descriptors and their JSON Schema validation parameters.
+* **`ToolRegistryPayload` & `ToolDefinition`**: Outbound manifest containing the collection of registered tool descriptors, their JSON Schema validation parameters, `critical` boolean flag, and optional `confirmationTemplate`.
 
 ### 3.3 RPC Correlation Mandate
 
@@ -106,12 +106,12 @@ The reasoning engine's asynchronous RPC pattern suspends execution until a respo
 
 The execution service exposes baseline tools designed for local Windows host diagnostic and management tasks. Each tool implements strict defensive checks.
 
-| Tool Name (`getName()`) | Target Subprocess | Parameters | Safety Safeguards & Constraints |
-| :--- | :--- | :--- | :--- |
-| **`matar_proceso`** | `taskkill.exe` | `nombre_proceso` (string)<br/>`pid` (integer) | • Protected process blacklist (`docker.exe`, `rabbitmq-server`, `java.exe`, `python.exe`, `wsl.exe`, `svchost.exe`, etc.).<br/>• Reserved kernel PID protection: PID 0 (System Idle) and PID 4 (System Kernel).<br/>• Regex validation (`^[a-zA-Z0-9_.-]+$`) against shell option injection.<br/>• 10-second timeout with forcible termination fallback (`destroyForcibly()`). |
-| **`escanear_puerto`** | `netstat.exe` | `puerto` (integer) | • Port range bounded between `1` and `65535`.<br/>• 15-second subprocess execution timeout.<br/>• Safe stream handling via try-with-resources. |
-| **`abrir_sitio_web`** | `cmd.exe /c start` | `url` (string) | • Strict URI parsing (`java.net.URI`) enforcing `http` or `https` schemes only.<br/>• Metacharacter filter rejecting shell chaining tokens (`&|<>;\"^%\r\n`).<br/>• Safe invocation using empty window title parameter (`start "" "<url>"`). |
-| **`analizar_rendimiento_procesos`** | `powershell.exe` | `limite_procesos` (integer) | • Clamped between `1` and `100` (default: `10`) to prevent memory buffer exhaustion.<br/>• 15-second execution timeout.<br/>• PowerShell execution executed with `-NoProfile` flag. |
+| Tool Name (`getName()`) | Critical (HITL) | Target Subprocess | Parameters | Safety Safeguards & Confirmation Template |
+| :--- | :--- | :--- | :--- | :--- |
+| **`matar_proceso`** | **Yes** | `taskkill.exe` | `nombre_proceso` (string)<br/>`pid` (integer) | • **Confirmation Template**: `¿Autoriza forzar el cierre del proceso '{nombre_proceso}' en el sistema operativo?`<br/>• Protected process blacklist (`docker.exe`, `rabbitmq-server`, `java.exe`, `python.exe`, `wsl.exe`, `svchost.exe`, etc.).<br/>• Reserved kernel PID protection: PID 0 (System Idle) and PID 4 (System Kernel).<br/>• Regex validation (`^[a-zA-Z0-9_.-]+$`) against shell option injection.<br/>• 10-second timeout with forcible termination fallback (`destroyForcibly()`). |
+| **`escanear_puerto`** | No | `netstat.exe` | `puerto` (integer) | • Port range bounded between `1` and `65535`.<br/>• 15-second subprocess execution timeout.<br/>• Safe stream handling via try-with-resources. |
+| **`abrir_sitio_web`** | No | `cmd.exe /c start` | `url` (string) | • Strict URI parsing (`java.net.URI`) enforcing `http` or `https` schemes only.<br/>• Metacharacter filter rejecting shell chaining tokens (`&|<>;\"^%\r\n`).<br/>• Safe invocation using empty window title parameter (`start "" "<url>"`). |
+| **`analizar_rendimiento_procesos`** | No | `powershell.exe` | `limite_procesos` (integer) | • Clamped between `1` and `100` (default: `10`) to prevent memory buffer exhaustion.<br/>• 15-second execution timeout.<br/>• PowerShell execution executed with `-NoProfile` flag. |
 
 ---
 
@@ -139,6 +139,18 @@ public class SystemInfoTool implements AgentTool {
     }
 
     @Override
+    public boolean isCritical() {
+        // Return true if the tool performs destructive or irreversible OS actions
+        return false;
+    }
+
+    @Override
+    public String getConfirmationTemplate() {
+        // Optional template for human-in-the-loop authorization prompt
+        return null;
+    }
+
+    @Override
     public ToolDefinition getDefinition() {
         Map<String, Object> schema = Map.of(
                 "type", "object",
@@ -148,7 +160,9 @@ public class SystemInfoTool implements AgentTool {
         return new ToolDefinition(
                 getName(),
                 "Obtiene información básica del sistema operativo (versión, arquitectura, hostname).",
-                schema
+                schema,
+                isCritical(),
+                getConfirmationTemplate()
         );
     }
 

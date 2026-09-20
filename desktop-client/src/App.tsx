@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { TabType, ChatMessage, TaskItem, AppSettings } from './types';
+import { TabType, ChatMessage, TaskItem, AppSettings, ConfirmationRequest } from './types';
 import { HeaderHUD } from './components/HeaderHUD';
 import { ChatPanel } from './components/ChatPanel';
 import { ArcReactorHUD } from './components/ArcReactorHUD';
 import { TasksPanel } from './components/TasksPanel';
 import { SettingsView } from './components/SettingsView';
+import { ConfirmationModal } from './components/ConfirmationModal';
 import { wsService } from './services/websocket';
+import { notificationService } from './services/notifications';
 import { useVoice } from './hooks/useVoice';
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -78,6 +80,7 @@ export const App: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'CONNECTING'>('CONNECTING');
   const [assistantStatus, setAssistantStatus] = useState<'THINKING' | 'IDLE'>('IDLE');
   const [toolsCount, setToolsCount] = useState<number>(5);
+  const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest | null>(null);
 
   const autoSpeakRef = useRef(settings.autoSpeakResponse);
   autoSpeakRef.current = settings.autoSpeakResponse;
@@ -122,10 +125,29 @@ export const App: React.FC = () => {
     cancelSpeech();
     wsService.sendStop();
     setAssistantStatus('IDLE');
+    setPendingConfirmation(null);
   }, [cancelSpeech]);
+
+  // Manejadores de confirmación Human-in-the-Loop
+  const handleConfirmAction = useCallback(() => {
+    if (pendingConfirmation) {
+      wsService.sendConfirmationResponse(pendingConfirmation.confirmationId, true);
+      setPendingConfirmation(null);
+    }
+  }, [pendingConfirmation]);
+
+  const handleCancelAction = useCallback(() => {
+    if (pendingConfirmation) {
+      wsService.sendConfirmationResponse(pendingConfirmation.confirmationId, false);
+      setPendingConfirmation(null);
+    }
+  }, [pendingConfirmation]);
 
   // Conexión WebSocket al motor de razonamiento de Python
   useEffect(() => {
+    // Solicitar permisos de notificación de escritorio en Windows al iniciar
+    notificationService.requestPermission();
+
     wsService.setUrl(settings.wsUrl);
     wsService.connect();
 
@@ -139,6 +161,18 @@ export const App: React.FC = () => {
 
     const unsubTools = wsService.onTools(toolsList => {
       setToolsCount(toolsList.length);
+    });
+
+    const unsubConfirmation = wsService.onConfirmationRequest(req => {
+      setPendingConfirmation(req);
+
+      // Si el usuario no tiene la ventana en primer plano o la pestaña está oculta, lanzar notificación de Windows
+      if (document.hidden || !document.hasFocus()) {
+        notificationService.sendNotification(`⚠️ JARVIS - ${req.title}`, {
+          body: req.message,
+          requireInteraction: true,
+        });
+      }
     });
 
     const unsubMessage = wsService.onMessage((content, speechText) => {
@@ -161,6 +195,7 @@ export const App: React.FC = () => {
       unsubStatus();
       unsubAssistantStatus();
       unsubTools();
+      unsubConfirmation();
       unsubMessage();
       wsService.disconnect();
     };
@@ -184,6 +219,15 @@ export const App: React.FC = () => {
       overflow: 'hidden',
       position: 'relative'
     }}>
+      {/* Modal Human-in-the-Loop para Acciones Críticas */}
+      {pendingConfirmation && (
+        <ConfirmationModal
+          request={pendingConfirmation}
+          onConfirm={handleConfirmAction}
+          onCancel={handleCancelAction}
+        />
+      )}
+
       {/* 1. Header Superior HUD */}
       <HeaderHUD
         activeTab={activeTab}

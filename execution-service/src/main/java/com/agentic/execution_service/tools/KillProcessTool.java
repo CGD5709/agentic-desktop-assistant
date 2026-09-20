@@ -39,6 +39,11 @@ public class KillProcessTool implements AgentTool {
     }
 
     @Override
+    public boolean isCritical() {
+        return true;
+    }
+
+    @Override
     public ToolDefinition getDefinition() {
         Map<String, Object> nameProperty = Map.of(
                 "type", "string",
@@ -61,7 +66,9 @@ public class KillProcessTool implements AgentTool {
         return new ToolDefinition(
                 getName(),
                 "Termina o cierra un proceso o aplicación en ejecución en el sistema operativo mediante su nombre de ejecutable (ej. 'notepad.exe') o su PID.",
-                parametersSchema
+                parametersSchema,
+                true,
+                "¿Autoriza forzar el cierre del proceso '{nombre_proceso}' en el sistema operativo?"
         );
     }
 
