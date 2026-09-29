@@ -1,10 +1,13 @@
-import { ConfirmationRequest } from '../types';
+import { ConfirmationRequest, EmailDraftData, EmailActionPayload, EmailItem } from '../types';
 
 type StatusCallback = (status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING') => void;
 type MessageCallback = (content: string, speechText?: string) => void;
 type AssistantStatusCallback = (state: 'THINKING' | 'IDLE') => void;
 type ToolsCallback = (tools: string[]) => void;
 type ConfirmationCallback = (request: ConfirmationRequest) => void;
+type EmailDraftCallback = (draft: EmailDraftData) => void;
+type EmailDraftClearedCallback = (draftId?: string) => void;
+type UnreadEmailsCallback = (emails: EmailItem[]) => void;
 
 export class JarvisWebSocketClient {
   private ws: WebSocket | null = null;
@@ -19,6 +22,9 @@ export class JarvisWebSocketClient {
   private onAssistantStatusListeners: Set<AssistantStatusCallback> = new Set();
   private onToolsListeners: Set<ToolsCallback> = new Set();
   private onConfirmationListeners: Set<ConfirmationCallback> = new Set();
+  private onEmailDraftListeners: Set<EmailDraftCallback> = new Set();
+  private onEmailDraftClearedListeners: Set<EmailDraftClearedCallback> = new Set();
+  private onUnreadEmailsListeners: Set<UnreadEmailsCallback> = new Set();
 
   constructor(url: string = 'ws://localhost:8000/ws') {
     this.url = url;
@@ -61,7 +67,7 @@ export class JarvisWebSocketClient {
           const data = JSON.parse(event.data);
           this.handleIncomingMessage(data);
         } catch (err) {
-          console.warn('[WS] Error parseando mensaje entrante:', err);
+          console.warn('[WS] Error parsing incoming message:', err);
         }
       };
 
@@ -76,10 +82,10 @@ export class JarvisWebSocketClient {
 
       ws.onerror = (error) => {
         if (this.ws !== ws) return;
-        console.warn('[WS] Error de socket:', error);
+        console.warn('[WS] Socket error event:', error);
       };
     } catch (e) {
-      console.error('[WS] Fallo de inicialización de conexión:', e);
+      console.error('[WS] Connection initialization error:', e);
       this.notifyStatus('DISCONNECTED');
       this.scheduleReconnect();
     }
@@ -102,7 +108,7 @@ export class JarvisWebSocketClient {
       try {
         socketToClose.close();
       } catch (err) {
-        console.warn('[WS] Error al cerrar socket:', err);
+        console.warn('[WS] Error closing socket:', err);
       }
     }
     this.notifyStatus('DISCONNECTED');
@@ -110,7 +116,7 @@ export class JarvisWebSocketClient {
 
   public sendUserMessage(content: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[WS] No conectado al enviar mensaje.');
+      console.warn('[WS] Cannot send message: not connected.');
       return false;
     }
 
@@ -132,9 +138,20 @@ export class JarvisWebSocketClient {
     return true;
   }
 
+  public sendClearHistory() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    this.ws.send(JSON.stringify({
+      type: 'clear_history'
+    }));
+    return true;
+  }
+
   public sendConfirmationResponse(confirmationId: string, confirmed: boolean) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[WS] No conectado al enviar respuesta de confirmación.');
+      console.warn('[WS] Cannot send confirmation: not connected.');
       return false;
     }
 
@@ -142,6 +159,19 @@ export class JarvisWebSocketClient {
       type: 'confirmation_response',
       confirmation_id: confirmationId,
       confirmed: confirmed
+    }));
+    return true;
+  }
+
+  public sendEmailAction(payload: EmailActionPayload) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn('[WS] Cannot send email action: not connected.');
+      return false;
+    }
+
+    this.ws.send(JSON.stringify({
+      type: 'email_action',
+      ...payload
     }));
     return true;
   }
@@ -164,6 +194,20 @@ export class JarvisWebSocketClient {
           this.onToolsListeners.forEach(cb => cb(data.tools));
         }
         break;
+      case 'unread_emails_list':
+        if (Array.isArray(data.emails)) {
+          this.onUnreadEmailsListeners.forEach(cb => cb(data.emails));
+        }
+        break;
+      case 'email_draft_view':
+        if (data.draft_id || data.draftId || data.data) {
+          const draftData: EmailDraftData = data.data || data;
+          this.onEmailDraftListeners.forEach(cb => cb(draftData));
+        }
+        break;
+      case 'email_draft_cleared':
+        this.onEmailDraftClearedListeners.forEach(cb => cb(data.draft_id || data.draftId));
+        break;
       case 'confirmation_request':
         const req: ConfirmationRequest = {
           confirmationId: data.confirmation_id,
@@ -178,7 +222,6 @@ export class JarvisWebSocketClient {
         this.onConfirmationListeners.forEach(cb => cb(req));
         break;
       case 'pong':
-        // Heartbeat respondido
         break;
       default:
         break;
@@ -234,6 +277,45 @@ export class JarvisWebSocketClient {
   public onConfirmationRequest(cb: ConfirmationCallback) {
     this.onConfirmationListeners.add(cb);
     return () => this.onConfirmationListeners.delete(cb);
+  }
+
+  public onEmailDraft(cb: EmailDraftCallback) {
+    this.onEmailDraftListeners.add(cb);
+    return () => this.onEmailDraftListeners.delete(cb);
+  }
+
+  public onEmailDraftCleared(cb: EmailDraftClearedCallback) {
+    this.onEmailDraftClearedListeners.add(cb);
+    return () => this.onEmailDraftClearedListeners.delete(cb);
+  }
+
+  public onUnreadEmails(cb: UnreadEmailsCallback) {
+    this.onUnreadEmailsListeners.add(cb);
+    return () => this.onUnreadEmailsListeners.delete(cb);
+  }
+
+  public generateEmailDraft(email: EmailItem, instructions?: string) {
+    return this.sendEmailAction({
+      action: 'generate_draft',
+      email_id: email.id,
+      account: email.account,
+      recipient: email.reply_to_address || email.from_address,
+      subject: email.subject,
+      instructions: instructions,
+      email: {
+        id: email.id,
+        account: email.account,
+        account_address: email.account_address,
+        subject: email.subject,
+        from_name: email.from_name,
+        from_address: email.from_address,
+        reply_to_address: email.reply_to_address,
+        body_text: email.body_text,
+        body_snippet: email.body_snippet,
+        category: email.category,
+        urgency_score: email.urgency_score,
+      }
+    });
   }
 
   private notifyStatus(status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING') {

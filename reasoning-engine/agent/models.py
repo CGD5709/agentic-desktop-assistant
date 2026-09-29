@@ -2,7 +2,7 @@ from enum import Enum
 import operator
 from typing import Annotated, Any, Dict, List, Optional, Sequence, TypedDict
 from langchain_core.messages import BaseMessage
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class EventType(str, Enum):
@@ -14,32 +14,40 @@ class EventType(str, Enum):
 
 class EventMetadata(BaseModel):
     """Metadata attached to every message envelope for routing and tracing."""
-    event_id: str = Field(..., alias="eventId")
-    correlation_id: str = Field(..., alias="correlationId")
+    model_config = ConfigDict(populate_by_name=True)
+
+    event_id: str = Field(..., validation_alias=AliasChoices("event_id", "eventId"), serialization_alias="eventId")
+    correlation_id: str = Field(..., validation_alias=AliasChoices("correlation_id", "correlationId"), serialization_alias="correlationId")
     timestamp: int
     source: str
-    event_type: EventType = Field(..., alias="eventType")
+    event_type: EventType = Field(..., validation_alias=AliasChoices("event_type", "eventType"), serialization_alias="eventType")
 
 
 class ToolExecutionRequestPayload(BaseModel):
     """Payload dispatched when the agent requests an external tool execution."""
-    tool_name: str = Field(..., alias="toolName")
+    model_config = ConfigDict(populate_by_name=True)
+
+    tool_name: str = Field(..., validation_alias=AliasChoices("tool_name", "toolName"), serialization_alias="toolName")
     arguments: Dict[str, Any]
 
 
 class ToolExecutionResponsePayload(BaseModel):
     """Payload returned by the execution service after running a tool."""
-    tool_name: str = Field(..., alias="toolName")
+    model_config = ConfigDict(populate_by_name=True)
+
+    tool_name: str = Field(..., validation_alias=AliasChoices("tool_name", "toolName"), serialization_alias="toolName")
     status: str
     output: Optional[str] = None
-    error_code: Optional[str] = Field(None, alias="errorCode")
+    error_code: Optional[str] = Field(None, validation_alias=AliasChoices("error_code", "errorCode"), serialization_alias="errorCode")
 
 
 class ConfirmationRequestPayload(BaseModel):
     """Payload dispatched over WebSocket when the agent requests user authorization for a critical tool."""
+    model_config = ConfigDict(populate_by_name=True)
+
     type: str = "confirmation_request"
-    confirmation_id: str = Field(..., alias="confirmationId")
-    tool_name: str = Field(..., alias="toolName")
+    confirmation_id: str = Field(..., validation_alias=AliasChoices("confirmation_id", "confirmationId"), serialization_alias="confirmationId")
+    tool_name: str = Field(..., validation_alias=AliasChoices("tool_name", "toolName"), serialization_alias="toolName")
     arguments: Dict[str, Any]
     title: str
     message: str
@@ -47,20 +55,14 @@ class ConfirmationRequestPayload(BaseModel):
     target: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
 
-    model_config = {
-        "populate_by_name": True,
-    }
-
 
 class ConfirmationResponsePayload(BaseModel):
     """Payload received from client confirming or denying a critical tool authorization request."""
-    type: str = "confirmation_response"
-    confirmation_id: str = Field(..., alias="confirmationId")
-    confirmed: bool = False
+    model_config = ConfigDict(populate_by_name=True)
 
-    model_config = {
-        "populate_by_name": True,
-    }
+    type: str = "confirmation_response"
+    confirmation_id: str = Field(..., validation_alias=AliasChoices("confirmation_id", "confirmationId"), serialization_alias="confirmationId")
+    confirmed: bool = False
 
 
 class EventEnvelope(BaseModel):

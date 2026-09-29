@@ -17,6 +17,7 @@ logger = get_logger("reasoning_engine.memory.async_manager")
 DEFAULT_DEBOUNCE_SECONDS = 45.0
 DEFAULT_MODEL_NAME = "qwen2.5:7b"
 DEFAULT_TEMPERATURE = 0.1
+DEFAULT_MIN_IMPORTANCE_THRESHOLD = 3
 
 # Context window capacity for extraction LLM. Ollama defaults to 2048 if unspecified,
 # which risks silently truncating larger turn batches, EXTRACTION_PROMPT, and candidate memories.
@@ -39,6 +40,12 @@ TRIVIAL_PATTERNS = [
     re.compile(r"^(ok|vale|de acuerdo|perfecto|entendido|guay|genial|bien|s[ií]|no)[\s!\.]*$", re.IGNORECASE),
     re.compile(r"^(adi[oó]s|hasta luego|chao|bye|nos vemos)[\s!\.]*$", re.IGNORECASE),
     re.compile(r"^(jaja|jajaja|jeje|xd|lol)[\s!\.]*$", re.IGNORECASE),
+]
+
+TRANSIENT_ACTION_PATTERNS = [
+    re.compile(r"^el\s+usuario\s+(ha\s+pedido|pidi[oó]|solicit[oó]|mand[oó]|quiere\s+que|orden[oó])\s+", re.IGNORECASE),
+    re.compile(r"^el\s+asistente\s+(ha\s+cerrado|ha\s+abierto|ha\s+ejecutado|ejecut[oó]|cerr[oó]|abri[oó]|mat[oó])\s+", re.IGNORECASE),
+    re.compile(r"^se\s+(ha\s+cerrado|ha\s+abierto|ha\s+ejecutado|cerr[oó]|abri[oó]|mat[oó]|ejecut[oó])\s+el\s+(proceso|comando|archivo|programa)", re.IGNORECASE),
 ]
 
 # EXTRACTION_PROMPT is imported from ..prompts and preserved identically.
@@ -82,6 +89,7 @@ class AsyncMemoryManager:
         debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS,
         temperature: float = DEFAULT_TEMPERATURE,
         num_ctx: int = DEFAULT_NUM_CTX,
+        min_importance: int = DEFAULT_MIN_IMPORTANCE_THRESHOLD,
     ) -> None:
         """
         Initializes the asynchronous memory manager.
@@ -93,6 +101,7 @@ class AsyncMemoryManager:
             debounce_seconds: Inactivity delay before processing accumulated dialogue.
             temperature: Sampling temperature for deterministic extraction.
             num_ctx: Context window size for Ollama inference to avoid silent prompt truncation.
+            min_importance: Minimum importance score threshold required to persist memories.
         """
         self.vector_store = vector_store
         self.profile_store = profile_store
@@ -102,6 +111,7 @@ class AsyncMemoryManager:
             num_ctx=num_ctx,
         )
         self.debounce_seconds = debounce_seconds
+        self.min_importance = min_importance
         
         self._pending_turns: List[Dict[str, str]] = []
         self._debounce_task: Optional[asyncio.Task] = None
@@ -258,6 +268,21 @@ class AsyncMemoryManager:
                 continue
 
             if op != MemoryOperationType.DELETE and not text:
+                continue
+
+            # Filter out memories below the minimum importance score threshold
+            if op in (MemoryOperationType.CREATE, MemoryOperationType.UPDATE) and importance < self.min_importance:
+                logger.info(
+                    "Skipping memory candidate below importance threshold (%d < %d): %s",
+                    importance,
+                    self.min_importance,
+                    text
+                )
+                continue
+
+            # Safety guard: Discard transient operational command and action logging
+            if op in (MemoryOperationType.CREATE, MemoryOperationType.UPDATE) and any(pat.search(text) for pat in TRANSIENT_ACTION_PATTERNS):
+                logger.warning("Discarding transient action log memory candidate: %s", text)
                 continue
 
             if op == MemoryOperationType.CREATE:

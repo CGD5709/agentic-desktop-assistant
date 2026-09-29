@@ -184,3 +184,83 @@ async def test_process_pending_buffer_injects_existing_memories():
     assert vector_mock.update_memory.called
     assert vector_mock.update_memory.call_args.kwargs.get("memory_id") == "mem-existing-999"
     assert vector_mock.update_memory.call_args.kwargs.get("new_text") == "El usuario usa Arch Linux"
+
+
+@pytest.mark.asyncio
+async def test_apply_memory_operations_filters_low_importance():
+    vector_mock = AsyncMock()
+    profile_mock = AsyncMock()
+    manager = AsyncMemoryManager(vector_store=vector_mock, profile_store=profile_mock, min_importance=3)
+
+    json_response = """
+    {
+      "operations": [
+        {
+          "op": "CREATE",
+          "memory_id": null,
+          "text": "Dato poco importante",
+          "category": "FACT",
+          "importance": 1,
+          "reason": "Detalle menor"
+        },
+        {
+          "op": "CREATE",
+          "memory_id": null,
+          "text": "Dato de importancia media-baja",
+          "category": "FACT",
+          "importance": 2,
+          "reason": "Detalle secundario"
+        }
+      ]
+    }
+    """
+
+    await manager._apply_memory_operations(json_response)
+
+    # Verificar que NINGÚN recuerdo con importancia < 3 fue guardado
+    assert not vector_mock.add_memory.called
+    assert not profile_mock.set.called
+
+
+@pytest.mark.asyncio
+async def test_apply_memory_operations_filters_transient_action_logs():
+    vector_mock = AsyncMock()
+    profile_mock = AsyncMock()
+    manager = AsyncMemoryManager(vector_store=vector_mock, profile_store=profile_mock)
+
+    json_response = """
+    {
+      "operations": [
+        {
+          "op": "CREATE",
+          "memory_id": null,
+          "text": "El usuario ha pedido cerrar el proceso de Google Chrome.",
+          "category": "PROJECT",
+          "importance": 3,
+          "reason": "Comando ejecutado"
+        },
+        {
+          "op": "CREATE",
+          "memory_id": null,
+          "text": "El asistente ha cerrado el proceso 5678",
+          "category": "FACT",
+          "importance": 4,
+          "reason": "Resultado de comando"
+        },
+        {
+          "op": "CREATE",
+          "memory_id": null,
+          "text": "Se ha cerrado el proceso de terminal",
+          "category": "FACT",
+          "importance": 3,
+          "reason": "Acción efímera"
+        }
+      ]
+    }
+    """
+
+    await manager._apply_memory_operations(json_response)
+
+    # Verificar que los registros de acciones operativas/comandos transitorios fueron descartados
+    assert not vector_mock.add_memory.called
+

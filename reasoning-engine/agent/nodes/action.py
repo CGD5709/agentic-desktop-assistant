@@ -31,7 +31,7 @@ DEFAULT_TOOL_SUCCESS_OUTPUT: Final[str] = "Action completed."
 MS_PER_SECOND: Final[int] = 1000
 
 # Built-in critical tools requiring confirmation if not explicitly overridden by discovery
-KNOWN_CRITICAL_TOOLS: Final[Set[str]] = {"matar_proceso"}
+KNOWN_CRITICAL_TOOLS: Final[Set[str]] = {"matar_proceso", "enviar_correo_electronico"}
 
 
 class ActionNode:
@@ -47,6 +47,7 @@ class ActionNode:
         dynamic_tools: Optional[List[Dict[str, Any]]] = None,
         confirmation_manager: Optional[ConfirmationManager] = None,
         ws_manager: Optional[WebSocketConnectionManager] = None,
+        email_service: Optional[Any] = None,
     ) -> None:
         """
         Initialize the action node with injected messaging client and HITL dependencies.
@@ -56,11 +57,13 @@ class ActionNode:
             dynamic_tools: Dynamic tools registry containing schema and criticality flags.
             confirmation_manager: Manager tracking pending user confirmation futures.
             ws_manager: WebSocket connection manager for dispatching confirmation modals to the frontend.
+            email_service: Optional EmailAssistantService for semantic classification and draft creation.
         """
         self._mq_client = mq_client
         self._dynamic_tools = dynamic_tools if dynamic_tools is not None else []
         self._confirmation_manager = confirmation_manager
         self._ws_manager = ws_manager
+        self._email_service = email_service
 
     def _get_tool_definition(self, tool_name: str) -> Optional[Dict[str, Any]]:
         """Look up tool descriptor dictionary from dynamic discovery registry."""
@@ -188,15 +191,15 @@ class ActionNode:
                 logger.info("HITL authorization granted by user for tool '%s'. Proceeding with OS execution.", tool_name)
 
             request_payload = ToolExecutionRequestPayload(
-                toolName=tool_name, arguments=tool_args
+                tool_name=tool_name, arguments=tool_args
             )
             envelope = EventEnvelope(
                 metadata=EventMetadata(
-                    eventId=str(uuid.uuid4()),
-                    correlationId=str(tool_call_id),
+                    event_id=str(uuid.uuid4()),
+                    correlation_id=str(tool_call_id),
                     timestamp=int(time.time() * MS_PER_SECOND),
                     source=DEFAULT_SOURCE_ID,
-                    eventType=EventType.EXECUTION_REQUEST,
+                    event_type=EventType.EXECUTION_REQUEST,
                 ),
                 payload=request_payload.model_dump(by_alias=True),
             )
@@ -213,6 +216,44 @@ class ActionNode:
                 status = payload.get("status", STATUS_SUCCESS)
                 output = payload.get("output", DEFAULT_TOOL_SUCCESS_OUTPUT)
                 result_text = output if status == STATUS_SUCCESS else f"Error: {output}"
+
+                # Trigger unread emails dispatch & classification for central zone
+                if tool_name == "consultar_correos_no_leidos" and status == STATUS_SUCCESS and self._email_service and self._ws_manager:
+                    try:
+                        raw_emails = self._email_service.parse_emails_from_tool_output(output)
+                        emails_payload = []
+                        for raw_email in raw_emails:
+                            classified = await self._email_service.classify_email(raw_email)
+                            email_dict = {
+                                "id": raw_email.id,
+                                "account": raw_email.account,
+                                "account_address": raw_email.account_address,
+                                "subject": raw_email.subject,
+                                "from_name": raw_email.from_name,
+                                "from_address": raw_email.from_address,
+                                "reply_to_address": raw_email.reply_to_address or raw_email.from_address,
+                                "to_addresses": raw_email.to_addresses,
+                                "cc_addresses": raw_email.cc_addresses,
+                                "received_at": raw_email.received_at,
+                                "body_snippet": raw_email.body_snippet or (raw_email.body_text[:200] if raw_email.body_text else ""),
+                                "body_text": raw_email.body_text or raw_email.body_snippet or "",
+                                "has_attachments": raw_email.has_attachments,
+                                "attachment_names": raw_email.attachment_names,
+                                "category": classified.category.value,
+                                "urgency_score": classified.urgency_score,
+                                "requires_reply": classified.requires_reply,
+                                "suggested_action": classified.suggested_action,
+                            }
+                            emails_payload.append(email_dict)
+
+                        if emails_payload:
+                            await self._ws_manager.broadcast({
+                                "type": "unread_emails_list",
+                                "total": len(emails_payload),
+                                "emails": emails_payload,
+                            })
+                    except Exception as email_err:
+                        logger.warning("Error processing email classification or drafts in ActionNode: %s", email_err)
 
             tool_messages.append(
                 ToolMessage(content=result_text, tool_call_id=tool_call_id)

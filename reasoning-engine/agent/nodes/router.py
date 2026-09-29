@@ -9,7 +9,11 @@ from logger import get_logger
 from ..memory.vector_store import VectorMemoryStore
 from ..models import AgentState
 from ..prompts import ROUTER_PROMPT
-from ..utils import extract_last_human_text, is_simple_greeting_or_trivial
+from ..utils import (
+    extract_last_human_text,
+    format_recent_history,
+    is_simple_greeting_or_trivial,
+)
 from .base import Intent
 
 logger = get_logger("reasoning_engine.agent.router")
@@ -70,18 +74,40 @@ class RouterNode:
                 "retrieved_memories": [],
             }
 
-        # Trivial greetings and courtesies are immediately routed to CHAT
+        # Check for prior conversational dialogue history
+        history_text = format_recent_history(messages)
+        has_history = bool(history_text.strip())
+
+        # Standalone trivial greetings on initial turn are immediately routed to CHAT
         # without consuming LLM inference cycles or triggering vector search.
-        if is_simple_greeting_or_trivial(last_human_text):
-            logger.debug("Trivial greeting detected. Routing directly to CHAT.")
+        # However, if active dialogue history exists, short inputs (e.g. "sí", "1", "todas")
+        # may represent parameters or confirmations for an ongoing command and must be classified with context.
+        if not has_history and is_simple_greeting_or_trivial(last_human_text):
+            logger.debug("Standalone trivial greeting detected on initial turn. Routing directly to CHAT.")
             return {
                 "intent": Intent.CHAT.value,
                 "retrieved_memories": [],
             }
 
+        if has_history:
+            user_content = (
+                f"Historial reciente de la conversación:\n"
+                f"{history_text}\n\n"
+                f"Último mensaje del usuario:\n"
+                f"\"{last_human_text}\"\n\n"
+                f"Clasifica la intención del último mensaje del usuario en 'CHAT' o 'COMMAND' "
+                f"considerando el contexto del historial previo."
+            )
+        else:
+            user_content = (
+                f"Mensaje del usuario:\n"
+                f"\"{last_human_text}\"\n\n"
+                f"Clasifica la intención del mensaje en 'CHAT' o 'COMMAND'."
+            )
+
         classification_messages = [
             SystemMessage(content=self._prompt),
-            HumanMessage(content=f"Mensaje del usuario: {last_human_text}"),
+            HumanMessage(content=user_content),
         ]
 
         classification = await self._llm.ainvoke(classification_messages)

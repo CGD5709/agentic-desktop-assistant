@@ -8,9 +8,9 @@ docker-compose up -d
 Write-Host "Verificando conexión con Ollama..." -ForegroundColor Yellow
 $ollama_status = ollama list 2>&1
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "✅ Ollama está activo y listo." -ForegroundColor Green
+    Write-Host "[OK] Ollama está activo y listo." -ForegroundColor Green
 } else {
-    Write-Host "⚠️ Ollama no responde. Asegúrate de tener la app abierta." -ForegroundColor Red
+    Write-Host "[ALERTA] Ollama no responde. Asegúrate de tener la app abierta." -ForegroundColor Red
 }
 
 # 3. Dar instrucciones para el Backend y el Frontend

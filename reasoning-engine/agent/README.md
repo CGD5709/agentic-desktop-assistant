@@ -139,9 +139,9 @@ To enforce the **DRY (Don't Repeat Yourself)** principle and promote clean inher
 Every node in the graph embodies the **Single Responsibility Principle (SRP)**:
 
 ### `RouterNode`
-* **Role**: Zero-shot semantic intent classifier and conditional retrieval gateway.
-* **Mechanism**: Invokes the LLM with `ROUTER_PROMPT` to classify the user's message as either `CHAT` or `COMMAND`.
-* **Optimization**: Evaluates the input against `is_simple_greeting_or_trivial()`. Non-substantive messages (greetings, courtesies, acknowledgements) bypass ChromaDB semantic search entirely, reducing vector retrieval overhead to zero for trivial turns.
+* **Role**: Context-aware semantic intent classifier and conditional retrieval gateway.
+* **Mechanism**: Invokes the LLM with `ROUTER_PROMPT` and the recent conversation history to classify the user's message as either `CHAT` or `COMMAND`. Correctly interprets follow-ups, option selections, parameters (e.g., "TODAS", "el 1"), and confirmations as `COMMAND` in ongoing technical dialogues.
+* **Optimization**: Standalone trivial greetings on initial turns bypass LLM inference and ChromaDB semantic search entirely, reducing latency to zero for simple greetings. When prior dialogue history exists, inputs are evaluated in context to ensure commands and confirmations are not misclassified.
 
 ### `ChatNode`
 * **Role**: General conversational turn generator.
@@ -155,18 +155,27 @@ Every node in the graph embodies the **Single Responsibility Principle (SRP)**:
 * **Turn Persistence**: If the model decides no tools are required, records the turn immediately; otherwise, defers turn recording until tool execution completes.
 
 ### `ActionNode`
-* **Role**: Distributed boundary between LLM reasoning and physical OS execution, and primary **Human-in-the-Loop (HITL)** safeguard.
+* **Role**: Distributed boundary between LLM reasoning and physical OS execution, primary **Human-in-the-Loop (HITL)** safeguard, and unread email dispatcher.
 * **Mechanism**: Iterates over `AIMessage.tool_calls`. For each tool invocation:
   1. Checks if the tool is flagged as `critical` in the registered tool manifest.
   2. If critical, generates a contextual confirmation message via [`agent/hitl.py`](./hitl.py) using the tool's `confirmation_template` and parameters.
   3. Dispatches a `confirmation_request` over WebSocket to the frontend and suspends execution using [`ConfirmationManager`](../services/confirmation_manager.py).
   4. If approved by the user, wraps the arguments into a `ToolExecutionRequestPayload` inside an `EventEnvelope` and executes via RabbitMQ RPC (`send_and_wait`).
   5. If rejected, skips AMQP publication and immediately constructs a localized `ToolMessage` indicating user cancellation.
+  6. **Email Ingestion Dispatch**: When `consultar_correos_no_leidos` succeeds, `ActionNode` parses all raw emails via `EmailAssistantService`, classifies each email into the 5-category taxonomy, and broadcasts the `unread_emails_list` event directly to the client to populate the central interactive canvas deck.
 * **Resilience**: Contains explicit type validation (`TypeError`), null-safety guards against RPC timeouts, and formats responses into standard LangChain `ToolMessage` instances.
+
+### `EmailAssistantService`
+* **Role**: Autonomous semantic email classifier and anti-hallucinatory response drafter.
+* **Capabilities**:
+  * **5-Category Classifier**: Evaluates incoming emails into `URGENT`, `UNIVERSITY`, `NOTIFICATION`, `NOT IMPORTANT`, or `SPAM` using structured LLM inference.
+  * **RFC-822 Recipient Grounding**: Locks `recipient_email` and `recipient_name` strictly from the original email's `reply_to_address` or `from_address`, preventing address hallucination.
+  * **Interactive Draft Management**: Creates, retrieves, and removes active draft payloads (`EmailDraftPayload`).
 
 ### `SummarizeNode`
 * **Role**: Technical result translator and conversational closer.
 * **Mechanism**: Takes the raw tool outputs collected by `ActionNode` (JSON logs, status codes, terminal outputs) and synthesizes a concise, elegant, human-friendly confirmation aligned with the Jarvis persona (`SUMMARIZE_PROMPT`).
+* **Email Chat Directive**: When summarizing unread emails, concludes with an explicit message reminding the operator that full emails are available in the central app deck and can be replied to directly.
 * **Turn Persistence**: Records the completed technical cycle into `AsyncMemoryManager` for background learning.
 
 ---
@@ -234,7 +243,7 @@ Inter-service communication and WebSocket interactions are governed by strict Py
 
 ### High-Performance Heuristics ([utils.py](./utils.py))
 * **Zero-Allocation Filtering**: Common conversational phrases ("hola", "gracias", "ok", "adiós", etc.) are stored in an immutable, module-level `frozenset` (`TRIVIAL_CONVERSATIONAL_PHRASES`). This eliminates heap allocation overhead on every user interaction turn.
-* **Token Economy**: Bypasses costly RAG embedding generation and vector search when messages are shorter than `MIN_TRIVIAL_CHAR_LENGTH = 4` or match trivial patterns.
+* **Token Economy**: Bypasses costly RAG embedding generation and vector search when messages match standalone trivial conversational patterns.
 * **Robust Multipart Extraction**: `extract_last_human_text` safely parses both standard string content and complex multimodal/dictionary payload blocks (`[{"type": "text", "text": "..."}]`).
 
 ---

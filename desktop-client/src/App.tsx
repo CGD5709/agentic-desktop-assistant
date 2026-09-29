@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { TabType, ChatMessage, TaskItem, AppSettings, ConfirmationRequest } from './types';
+import { TabType, ChatMessage, TaskItem, AppSettings, ConfirmationRequest, EmailDraftData, EmailItem } from './types';
 import { HeaderHUD } from './components/HeaderHUD';
 import { ChatPanel } from './components/ChatPanel';
 import { ArcReactorHUD } from './components/ArcReactorHUD';
 import { TasksPanel } from './components/TasksPanel';
 import { SettingsView } from './components/SettingsView';
 import { ConfirmationModal } from './components/ConfirmationModal';
+import { EmailReviewDeck } from './components/EmailReviewDeck';
 import { wsService } from './services/websocket';
 import { notificationService } from './services/notifications';
 import { useVoice } from './hooks/useVoice';
@@ -81,11 +82,15 @@ export const App: React.FC = () => {
   const [assistantStatus, setAssistantStatus] = useState<'THINKING' | 'IDLE'>('IDLE');
   const [toolsCount, setToolsCount] = useState<number>(5);
   const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest | null>(null);
+  const [unreadEmails, setUnreadEmails] = useState<EmailItem[]>([]);
+  const [activeEmailDraft, setActiveEmailDraft] = useState<EmailDraftData | null>(null);
 
   const autoSpeakRef = useRef(settings.autoSpeakResponse);
   autoSpeakRef.current = settings.autoSpeakResponse;
 
-  // Enviar mensaje de usuario
+  /**
+   * Dispatches user chat message to local state and WebSocket channel.
+   */
   const handleSendMessage = useCallback((text: string) => {
     if (!text || !text.trim()) return;
 
@@ -100,7 +105,7 @@ export const App: React.FC = () => {
     wsService.sendUserMessage(text.trim());
   }, []);
 
-  // Hook unificado de voz (STT, TTS, PTT, Audio Analysis)
+  // Voice orchestration hook (STT, TTS, PTT, Audio Analysis)
   const {
     voiceState,
     audioLevel,
@@ -120,7 +125,7 @@ export const App: React.FC = () => {
     onFinalTranscript: handleSendMessage
   });
 
-  // Botón de Parada (Stop) estilo Gemini
+  // Stop controller: aborts active speech and active reasoning turn
   const handleStop = useCallback(() => {
     cancelSpeech();
     wsService.sendStop();
@@ -128,7 +133,7 @@ export const App: React.FC = () => {
     setPendingConfirmation(null);
   }, [cancelSpeech]);
 
-  // Manejadores de confirmación Human-in-the-Loop
+  // Human-in-the-Loop confirmation handlers
   const handleConfirmAction = useCallback(() => {
     if (pendingConfirmation) {
       wsService.sendConfirmationResponse(pendingConfirmation.confirmationId, true);
@@ -143,9 +148,48 @@ export const App: React.FC = () => {
     }
   }, [pendingConfirmation]);
 
-  // Conexión WebSocket al motor de razonamiento de Python
+  // Email subsystem action handlers
+  const handleGenerateEmailDraft = useCallback((email: EmailItem, instructions?: string) => {
+    wsService.generateEmailDraft(email, instructions);
+  }, []);
+
+  const handleApproveAndSendEmail = useCallback((
+    draftId: string,
+    account: string,
+    recipient: string,
+    subject: string,
+    body: string,
+    emailId: string
+  ) => {
+    wsService.sendEmailAction({
+      action: 'approve_and_send',
+      draft_id: draftId,
+      account,
+      recipient,
+      subject,
+      body,
+      email_id: emailId
+    });
+  }, []);
+
+  const handleDiscardEmailDraft = useCallback((draftId: string, emailId: string) => {
+    wsService.sendEmailAction({
+      action: 'discard_draft',
+      draft_id: draftId,
+      email_id: emailId
+    });
+    if (activeEmailDraft?.draft_id === draftId) {
+      setActiveEmailDraft(null);
+    }
+  }, [activeEmailDraft]);
+
+  const handleCloseEmailDeck = useCallback(() => {
+    setUnreadEmails([]);
+    setActiveEmailDraft(null);
+  }, []);
+
+  // WebSocket subscription lifecycle
   useEffect(() => {
-    // Solicitar permisos de notificación de escritorio en Windows al iniciar
     notificationService.requestPermission();
 
     wsService.setUrl(settings.wsUrl);
@@ -163,12 +207,24 @@ export const App: React.FC = () => {
       setToolsCount(toolsList.length);
     });
 
+    const unsubUnreadEmails = wsService.onUnreadEmails(emails => {
+      setUnreadEmails(emails);
+    });
+
+    const unsubEmailDraft = wsService.onEmailDraft(draft => {
+      setActiveEmailDraft(draft);
+    });
+
+    const unsubEmailDraftCleared = wsService.onEmailDraftCleared(() => {
+      setActiveEmailDraft(null);
+    });
+
     const unsubConfirmation = wsService.onConfirmationRequest(req => {
       setPendingConfirmation(req);
 
-      // Si el usuario no tiene la ventana en primer plano o la pestaña está oculta, lanzar notificación de Windows
+      // Trigger OS desktop notification if window is minimized or unfocused
       if (document.hidden || !document.hasFocus()) {
-        notificationService.sendNotification(`⚠️ JARVIS - ${req.title}`, {
+        notificationService.sendNotification(`[CONFIRMACIÓN REQUERIDA] JARVIS - ${req.title}`, {
           body: req.message,
           requireInteraction: true,
         });
@@ -185,7 +241,6 @@ export const App: React.FC = () => {
       };
       setMessages(prev => [...prev, newMsg]);
 
-      // Reproducción automática de voz si está activada
       if (autoSpeakRef.current && (speechText || content)) {
         speak(speechText || content);
       }
@@ -195,6 +250,9 @@ export const App: React.FC = () => {
       unsubStatus();
       unsubAssistantStatus();
       unsubTools();
+      unsubUnreadEmails();
+      unsubEmailDraft();
+      unsubEmailDraftCleared();
       unsubConfirmation();
       unsubMessage();
       wsService.disconnect();
@@ -203,6 +261,7 @@ export const App: React.FC = () => {
 
   const handleClearMessages = useCallback(() => {
     setMessages([]);
+    wsService.sendClearHistory();
   }, []);
 
   const handleSaveSettings = useCallback((newSettings: AppSettings) => {
@@ -219,7 +278,7 @@ export const App: React.FC = () => {
       overflow: 'hidden',
       position: 'relative'
     }}>
-      {/* Modal Human-in-the-Loop para Acciones Críticas */}
+      {/* Human-in-the-Loop Confirmation Modal */}
       {pendingConfirmation && (
         <ConfirmationModal
           request={pendingConfirmation}
@@ -228,7 +287,7 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* 1. Header Superior HUD */}
+      {/* Top Header HUD */}
       <HeaderHUD
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -239,7 +298,7 @@ export const App: React.FC = () => {
         onToggleVoice={toggleListening}
       />
 
-      {/* 2. Área Principal de Trabajo */}
+      {/* Main Workspace */}
       <main style={{
         flex: 1,
         display: 'flex',
@@ -250,7 +309,7 @@ export const App: React.FC = () => {
       }}>
         {activeTab === 'home' ? (
           <>
-            {/* Panel de Chat (Izquierda, Redimensionable con Botón Dinámico Stop/Send) */}
+            {/* Chat Panel */}
             <ChatPanel
               messages={messages}
               onSendMessage={handleSendMessage}
@@ -268,20 +327,58 @@ export const App: React.FC = () => {
               onWidthChange={setChatWidth}
             />
 
-            {/* Canvas Central Libre con Arc Reactor Reactivo */}
-            <ArcReactorHUD
-              voiceState={voiceState}
-              audioLevel={audioLevel * (settings.audioSensitivity / 80)}
-              toolsCount={toolsCount}
-            />
+            {/* Central Canvas: Email Review Deck or Arc Reactor */}
+            {unreadEmails.length > 0 || activeEmailDraft ? (
+              <EmailReviewDeck
+                emails={
+                  unreadEmails.length > 0
+                    ? unreadEmails
+                    : activeEmailDraft
+                    ? [
+                        {
+                          id: activeEmailDraft.original_message_id,
+                          account: activeEmailDraft.account,
+                          account_address: activeEmailDraft.account_address,
+                          subject: activeEmailDraft.subject,
+                          from_name: activeEmailDraft.recipient_name,
+                          from_address: activeEmailDraft.recipient_email,
+                          reply_to_address: activeEmailDraft.recipient_email,
+                          received_at: activeEmailDraft.created_at,
+                          body_snippet: activeEmailDraft.original_snippet,
+                          body_text: activeEmailDraft.original_snippet,
+                          category: activeEmailDraft.category,
+                          urgency_score: activeEmailDraft.urgency_score,
+                          draft: {
+                            draft_id: activeEmailDraft.draft_id,
+                            draft_body: activeEmailDraft.draft_body,
+                            is_generating: false,
+                            created_at: activeEmailDraft.created_at
+                          }
+                        }
+                      ]
+                    : []
+                }
+                activeDraft={activeEmailDraft}
+                onGenerateDraft={handleGenerateEmailDraft}
+                onApproveAndSend={handleApproveAndSendEmail}
+                onDiscardDraft={handleDiscardEmailDraft}
+                onClose={handleCloseEmailDeck}
+              />
+            ) : (
+              <ArcReactorHUD
+                voiceState={voiceState}
+                audioLevel={audioLevel * (settings.audioSensitivity / 80)}
+                toolsCount={toolsCount}
+              />
+            )}
 
-            {/* Panel de Tareas Pendientes (Derecha) */}
+            {/* Tasks Panel */}
             <TasksPanel
               tasks={tasks}
             />
           </>
         ) : (
-          /* Pantalla de Ajustes */
+          /* Settings View */
           <SettingsView
             settings={settings}
             onSaveSettings={handleSaveSettings}

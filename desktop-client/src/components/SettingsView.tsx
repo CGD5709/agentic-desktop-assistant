@@ -20,7 +20,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [isPlayingTestVoice, setIsPlayingTestVoice] = useState(false);
 
-  // Cargar lista de voces disponibles en el sistema operativo
+  // Discover operating system TTS voices
   useEffect(() => {
     const updateVoices = () => {
       const voices = speechSynthesisService.getVoices();
@@ -33,7 +33,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   }, []);
 
-  // Escuchador para grabar nueva tecla de atajo
+  // Global hotkey keydown listener for push-to-talk binding
   useEffect(() => {
     if (!isRecordingKey) return;
 
@@ -120,7 +120,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       flexDirection: 'column',
       overflow: 'hidden'
     }}>
-      {/* Header de Ajustes */}
+      {/* Settings Header */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -145,7 +145,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </button>
       </div>
 
-      {/* Formulario de Configuración */}
+      {/* Settings Form */}
       <form onSubmit={handleSubmit} style={{
         flex: 1,
         overflowY: 'auto',
@@ -157,7 +157,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         margin: '0 auto',
         width: '100%'
       }}>
-        {/* SECCIÓN 1: CONTROL POR VOZ Y PUSH-TO-TALK */}
+        {/* SECTION 1: VOICE INPUT & PUSH-TO-TALK */}
         <div style={{
           padding: '18px 20px',
           borderRadius: 'var(--radius-sm)',
@@ -215,7 +215,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
 
-          {/* Selector de Modo PTT */}
+          {/* PTT Mode Selector */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginTop: '6px' }}>
             <label
               onClick={() => setFormData({ ...formData, pttMode: 'hold' as PttMode })}
@@ -271,7 +271,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* SECCIÓN 2: RESPUESTA POR VOZ (TEXT-TO-SPEECH // TTS) */}
+        {/* SECTION 2: TEXT-TO-SPEECH (TTS) */}
         <div style={{
           padding: '18px 20px',
           borderRadius: 'var(--radius-sm)',
@@ -361,7 +361,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <option value="">Voz Predeterminada en Español</option>
               {availableVoices.map(voice => (
                 <option key={voice.voiceURI} value={voice.voiceURI}>
-                  {voice.name} ({voice.lang}) {voice.default ? '★' : ''}
+                  {voice.name} ({voice.lang}) {voice.default ? '(Predeterminada)' : ''}
                 </option>
               ))}
             </select>
@@ -401,7 +401,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* SECCIÓN 3: EFECTOS SONOROS Y FEEDBACK HUD */}
+        {/* SECTION 3: SOUND EFFECTS & HUD FEEDBACK */}
         <div style={{
           padding: '18px 20px',
           borderRadius: 'var(--radius-sm)',
@@ -471,7 +471,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* SECCIÓN 4: MOTOR DE RAZONAMIENTO */}
+        {/* SECTION 4: REASONING ENGINE WEBSOCKET */}
         <div style={{
           padding: '18px 20px',
           borderRadius: 'var(--radius-sm)',
@@ -554,7 +554,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {/* Botones de Acción Footer */}
+        {/* Action Controls Footer */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '14px', marginTop: '10px' }}>
           <button
             type="button"
@@ -594,3 +594,5 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     </div>
   );
 };
+
+export default SettingsView;

@@ -93,8 +93,15 @@ def test_models_schema():
     assert state["intent"] == "CHAT"
 
 
+from agent.utils import (
+    extract_last_human_text,
+    format_recent_history,
+    is_simple_greeting_or_trivial,
+)
+
+
 def test_utils_heuristics():
-    """Tests message parsing and greeting heuristics."""
+    """Tests message parsing, history formatting, and greeting heuristics."""
     msgs = [
         SystemMessage(content="sys"),
         HumanMessage(content="Hello assistant"),
@@ -105,6 +112,12 @@ def test_utils_heuristics():
     assert is_simple_greeting_or_trivial("hola") is True
     assert is_simple_greeting_or_trivial("ok") is True
     assert is_simple_greeting_or_trivial("dime qué procesos consumen más RAM") is False
+
+    # Test format_recent_history
+    history = format_recent_history(msgs)
+    assert "Usuario: Hello assistant" in history
+    assert "Asistente: Hi there!" in history
+    assert "What is the weather?" not in history  # Current prompt excluded
 
 
 def test_routing_functions():
@@ -131,7 +144,7 @@ async def test_router_node():
     llm_mock = AsyncMock()
     vector_mock = AsyncMock()
 
-    # Case 1: Classified as COMMAND
+    # Case 1: Initial Command
     llm_mock.ainvoke.return_value = AIMessage(content="COMMAND")
     vector_mock.search_memories.return_value = [
         MemoryItem(text="Memory 1", category=MemoryCategory.PROJECT)
@@ -146,12 +159,49 @@ async def test_router_node():
     assert result["intent"] == "COMMAND"
     assert len(result["retrieved_memories"]) == 1
 
-    # Case 2: Trivial greeting skips vector search
-    llm_mock.ainvoke.return_value = AIMessage(content="CHAT")
+    # Case 2: Trivial greeting skips vector search on initial turn
+    llm_mock.reset_mock()
     state_trivial: AgentState = {"messages": [HumanMessage(content="hola")]}
     result_trivial = await router(state_trivial)
     assert result_trivial["intent"] == "CHAT"
     assert len(result_trivial["retrieved_memories"]) == 0
+    # On initial turn with trivial greeting, LLM is bypassed
+    assert not llm_mock.ainvoke.called
+
+    # Case 3: Follow-up reply with conversational history (e.g., "TODAS")
+    llm_mock.reset_mock()
+    llm_mock.ainvoke.return_value = AIMessage(content="COMMAND")
+    state_followup: AgentState = {
+        "messages": [
+            HumanMessage(content="Buenas, cuales son mis correos sin leer"),
+            AIMessage(content="Para consultar tus correos sin leer, ¿de qué cuenta quieres verlos o prefieres todas?"),
+            HumanMessage(content="TODAS"),
+        ]
+    }
+    result_followup = await router(state_followup)
+    assert result_followup["intent"] == "COMMAND"
+    assert llm_mock.ainvoke.called
+    sent_prompt = llm_mock.ainvoke.call_args[0][0][1].content
+    assert "Historial reciente de la conversación:" in sent_prompt
+    assert "cuales son mis correos sin leer" in sent_prompt
+    assert "TODAS" in sent_prompt
+
+    # Case 4: Confirmation reply with conversational history (e.g., "sí") does not bypass LLM
+    llm_mock.reset_mock()
+    llm_mock.ainvoke.return_value = AIMessage(content="COMMAND")
+    state_confirmation: AgentState = {
+        "messages": [
+            HumanMessage(content="Mata el proceso notepad"),
+            AIMessage(content="¿Confirmas que deseas cerrar el proceso notepad.exe?"),
+            HumanMessage(content="sí"),
+        ]
+    }
+    result_confirmation = await router(state_confirmation)
+    assert result_confirmation["intent"] == "COMMAND"
+    assert llm_mock.ainvoke.called
+    sent_prompt_conf = llm_mock.ainvoke.call_args[0][0][1].content
+    assert "Mata el proceso notepad" in sent_prompt_conf
+    assert "sí" in sent_prompt_conf
 
 
 @pytest.mark.asyncio
@@ -222,6 +272,130 @@ async def test_command_node_with_tools():
     assert len(result["messages"]) == 1
     assert result["messages"][0].tool_calls[0]["name"] == "system_stats"
     llm_mock.bind_tools.assert_called_once_with(tools)
+
+
+@pytest.mark.asyncio
+async def test_command_node_fallback_markdown_json():
+    """Tests CommandNode recovering tool calls when LLM outputs simulated JSON in markdown text."""
+    llm_mock = MagicMock()
+    bound_llm_mock = AsyncMock()
+    # LLM returns plain text with markdown JSON and empty tool_calls
+    simulated_resp = AIMessage(
+        content='Vamos a consultar los correos...\n\n```json\n{"name": "consultar_correos_no_leidos", "arguments": {"cuenta": "TODAS"}}\n```\nObteniendo correos...',
+        tool_calls=[]
+    )
+    bound_llm_mock.ainvoke.return_value = simulated_resp
+    llm_mock.bind_tools.return_value = bound_llm_mock
+
+    profile_mock = AsyncMock()
+    profile_mock.format_for_context.return_value = ""
+    summarizer_mock = MagicMock()
+    summarizer_mock.get_summary_context.return_value = ""
+    vector_mock = MagicMock()
+    vector_mock.format_for_context.return_value = ""
+    memory_manager_mock = MagicMock()
+
+    tools = [{"type": "function", "function": {"name": "consultar_correos_no_leidos"}}]
+
+    command = CommandNode(
+        llm=llm_mock,
+        profile_store=profile_mock,
+        session_summarizer=summarizer_mock,
+        vector_store=vector_mock,
+        memory_manager=memory_manager_mock,
+        tools=tools,
+    )
+
+    state: AgentState = {"messages": [HumanMessage(content="Consulta mis correos recientes")]}
+    result = await command(state)
+
+    assert len(result["messages"]) == 1
+    recovered_msg = result["messages"][0]
+    assert len(recovered_msg.tool_calls) == 1
+    assert recovered_msg.tool_calls[0]["name"] == "consultar_correos_no_leidos"
+    assert recovered_msg.tool_calls[0]["args"]["cuenta"] == "TODAS"
+
+
+@pytest.mark.asyncio
+async def test_command_node_fallback_python_tool_call():
+    """Tests CommandNode recovering tool calls when LLM outputs Python code block or tool_call(get_recent_unread_emails)."""
+    llm_mock = MagicMock()
+    bound_llm_mock = AsyncMock()
+    simulated_resp = AIMessage(
+        content="Consultando tus correos no leídos...\n\n```python\ntool_call(get_recent_unread_emails, account='TODAS')\n```\nAccediendo...",
+        tool_calls=[]
+    )
+    bound_llm_mock.ainvoke.return_value = simulated_resp
+    llm_mock.bind_tools.return_value = bound_llm_mock
+
+    profile_mock = AsyncMock()
+    profile_mock.format_for_context.return_value = ""
+    summarizer_mock = MagicMock()
+    summarizer_mock.get_summary_context.return_value = ""
+    vector_mock = MagicMock()
+    vector_mock.format_for_context.return_value = ""
+    memory_manager_mock = MagicMock()
+
+    tools = [{"type": "function", "function": {"name": "consultar_correos_no_leidos"}}]
+
+    command = CommandNode(
+        llm=llm_mock,
+        profile_store=profile_mock,
+        session_summarizer=summarizer_mock,
+        vector_store=vector_mock,
+        memory_manager=memory_manager_mock,
+        tools=tools,
+    )
+
+    state: AgentState = {"messages": [HumanMessage(content="lee mis correos no leidos")]}
+    result = await command(state)
+
+    assert len(result["messages"]) == 1
+    recovered_msg = result["messages"][0]
+    assert len(recovered_msg.tool_calls) == 1
+    assert recovered_msg.tool_calls[0]["name"] == "consultar_correos_no_leidos"
+    assert recovered_msg.tool_calls[0]["args"]["cuenta"] == "TODAS"
+
+
+@pytest.mark.asyncio
+async def test_command_node_fallback_triple_quote_python():
+    """Tests CommandNode recovering tool calls with triple single quotes format: ''' python tool_call(get_recent_unread_emails)'''."""
+    llm_mock = MagicMock()
+    bound_llm_mock = AsyncMock()
+    simulated_resp = AIMessage(
+        content="''' python tool_call(get_recent_unread_emails)'''",
+        tool_calls=[]
+    )
+    bound_llm_mock.ainvoke.return_value = simulated_resp
+    llm_mock.bind_tools.return_value = bound_llm_mock
+
+    profile_mock = AsyncMock()
+    profile_mock.format_for_context.return_value = ""
+    summarizer_mock = MagicMock()
+    summarizer_mock.get_summary_context.return_value = ""
+    vector_mock = MagicMock()
+    vector_mock.format_for_context.return_value = ""
+    memory_manager_mock = MagicMock()
+
+    tools = [{"type": "function", "function": {"name": "consultar_correos_no_leidos"}}]
+
+    command = CommandNode(
+        llm=llm_mock,
+        profile_store=profile_mock,
+        session_summarizer=summarizer_mock,
+        vector_store=vector_mock,
+        memory_manager=memory_manager_mock,
+        tools=tools,
+    )
+
+    state: AgentState = {"messages": [HumanMessage(content="lee mis correos")]}
+    result = await command(state)
+
+    assert len(result["messages"]) == 1
+    recovered_msg = result["messages"][0]
+    assert len(recovered_msg.tool_calls) == 1
+    assert recovered_msg.tool_calls[0]["name"] == "consultar_correos_no_leidos"
+    assert isinstance(recovered_msg.tool_calls[0]["args"], dict)
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
+import re
 from typing import List, Sequence, Optional, Any, Callable, Union
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage, SystemMessage, AIMessage
 from .short_term import trim_messages_token_budget
 from .models import MemoryItem
 
@@ -30,6 +31,35 @@ def _default_memory_formatter(memories: Sequence[Union[MemoryItem, Any]]) -> str
     return "\n".join(lines)
 
 
+def _sanitize_history_message(msg: BaseMessage) -> BaseMessage:
+    """
+    Sanitizes historical assistant messages that may contain hallucinated code blocks
+    (like ```python tool_call(...)``` or ''' python tool_call(...)''') so they do not
+    poison subsequent few-shot context and cause the model to repeat pseudo-code outputs.
+    """
+    if isinstance(msg, AIMessage) and isinstance(msg.content, str):
+        content = msg.content
+        cleaned = re.sub(
+            r"(?:```|''')(?:python|json)?\s*tool_call\([^)]*\)\s*(?:```|''')",
+            "[Ejecutando herramienta del sistema...]",
+            content,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r"tool_call\([a-zA-Z_0-9]+[^)]*\)",
+            "[Ejecutando herramienta del sistema...]",
+            cleaned,
+        )
+        if cleaned != content:
+            return AIMessage(
+                content=cleaned,
+                tool_calls=msg.tool_calls,
+                id=getattr(msg, "id", None),
+                additional_kwargs=msg.additional_kwargs,
+            )
+    return msg
+
+
 class ContextAssembler:
     """
     Unified Multi-Tier Context Assembler.
@@ -50,7 +80,7 @@ class ContextAssembler:
         retrieved_memories: Optional[Sequence[Any]] = None,
         session_summary_context: Optional[str] = None,
         max_dialogue_tokens: int = DEFAULT_MAX_DIALOGUE_TOKENS,
-        memory_store_formatter: Optional[Callable[[Sequence[Any]], str]] = None
+        memory_store_formatter: Optional[Callable[[Sequence[Any]], str]] = None,
     ) -> List[BaseMessage]:
         """
         Constructs the final, structured sequence of messages for LLM invocation.
@@ -96,7 +126,10 @@ class ContextAssembler:
         trimmed_dialogue = trim_messages_token_budget(
             messages=messages,
             max_tokens=max_dialogue_tokens,
-            keep_system_messages=False
+            keep_system_messages=False,
         )
 
-        return [full_system_message] + list(trimmed_dialogue)
+        # Sanitize historical messages to avoid few-shot contamination
+        sanitized_dialogue = [_sanitize_history_message(m) for m in trimmed_dialogue]
+
+        return [full_system_message] + sanitized_dialogue

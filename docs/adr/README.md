@@ -15,3 +15,4 @@ This directory maintains the formal Architecture Decision Records for the distri
 | [ADR-007](./ADR-007-distributed-tracing-and-asynchronous-observability.md) | Distributed Tracing and Asynchronous Observability | Accepted | 2026-09-15 |
 | [ADR-008](./ADR-008-cascaded-audio-transducers-vs-native-audio-llm.md) | Cascaded Audio Transducers vs. Native End-to-End Multimodal Audio LLMs | Accepted | 2026-09-18 |
 | [ADR-009](./ADR-009-human-in-the-loop-safeguard-architecture.md) | Human-in-the-Loop Safeguard Architecture for Critical OS Tools | Accepted | 2026-09-20 |
+| [ADR-010](./ADR-010-intelligent-email-assistant-architecture.md) | Intelligent Email Assistant & Supervised Dispatch Architecture | Accepted | 2026-09-29 |

@@ -48,3 +48,59 @@ export interface ConfirmationRequest {
   target?: string;
   details?: Record<string, any>;
 }
+
+export type EmailCategoryType = 'URGENT' | 'UNIVERSITY' | 'NOTIFICATION' | 'NOT IMPORTANT' | 'SPAM';
+
+export interface EmailDraftData {
+  draft_id: string;
+  original_message_id: string;
+  account: 'GMAIL' | 'OUTLOOK' | string;
+  account_address: string;
+  recipient_name: string;
+  recipient_email: string;
+  subject: string;
+  original_snippet: string;
+  draft_body: string;
+  category: EmailCategoryType;
+  urgency_score: number;
+  created_at: string;
+}
+
+export interface EmailItem {
+  id: string;
+  account: 'GMAIL' | 'OUTLOOK' | string;
+  account_address: string;
+  subject: string;
+  from_name: string;
+  from_address: string;
+  reply_to_address: string;
+  to_addresses?: string[];
+  cc_addresses?: string[];
+  received_at: string;
+  body_snippet: string;
+  body_text: string;
+  has_attachments?: boolean;
+  attachment_names?: string[];
+  category: EmailCategoryType;
+  urgency_score: number;
+  requires_reply?: boolean;
+  suggested_action?: string;
+  draft?: {
+    draft_id: string;
+    draft_body: string;
+    is_generating?: boolean;
+    created_at?: string;
+  };
+}
+
+export interface EmailActionPayload {
+  action: 'approve_and_send' | 'discard_draft' | 'generate_draft' | 'regenerate_draft';
+  draft_id?: string;
+  email_id?: string;
+  account?: string;
+  recipient?: string;
+  subject?: string;
+  body?: string;
+  instructions?: string;
+  email?: Partial<EmailItem>;
+}

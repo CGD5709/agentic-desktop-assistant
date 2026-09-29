@@ -4,9 +4,6 @@ Utility functions for text processing, message history parsing, and conversation
 from typing import Final, Sequence
 from langchain_core.messages import BaseMessage, HumanMessage
 
-# Minimum character length below which standalone non-technical tokens are deemed trivial
-MIN_TRIVIAL_CHAR_LENGTH: Final[int] = 4
-
 # Punctuation marks stripped during trivial text normalization
 PUNCTUATION_TO_STRIP: Final[str] = ".!¡?¿,;:…"
 
@@ -80,13 +77,102 @@ def is_simple_greeting_or_trivial(text: str) -> bool:
         True if the text is classified as trivial conversational filler; False otherwise.
     """
     normalized_text = text.strip().lower().strip(PUNCTUATION_TO_STRIP)
-    return normalized_text in TRIVIAL_CONVERSATIONAL_PHRASES or len(normalized_text) < MIN_TRIVIAL_CHAR_LENGTH
+    if not normalized_text:
+        return True
+    return normalized_text in TRIVIAL_CONVERSATIONAL_PHRASES
+
+
+def format_recent_history(
+    messages: Sequence[BaseMessage],
+    max_messages: int = 6,
+    max_content_length: int = 300,
+) -> str:
+    """
+    Format recent conversational history leading up to the current turn into a dialogue string.
+
+    Excludes system messages and the final HumanMessage (the active input being classified).
+
+    Args:
+        messages: Full sequence of messages from the agent state.
+        max_messages: Maximum number of preceding dialogue messages to include.
+        max_content_length: Truncation threshold for lengthy assistant/tool responses.
+
+    Returns:
+        Formatted multi-turn dialogue string, or empty string if no preceding history exists.
+    """
+    from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+
+    if not messages:
+        return ""
+
+    # Find the index of the last HumanMessage in the sequence
+    last_human_idx = -1
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            last_human_idx = i
+            break
+
+    if last_human_idx <= 0:
+        # No prior messages before the active human prompt
+        return ""
+
+    # Filter out SystemMessages and slice the most recent dialogue turns
+    prior_messages = [
+        msg for msg in messages[:last_human_idx]
+        if not isinstance(msg, SystemMessage)
+    ]
+
+    if not prior_messages:
+        return ""
+
+    selected = prior_messages[-max_messages:]
+    formatted_lines: list[str] = []
+
+    for msg in selected:
+        if isinstance(msg, HumanMessage):
+            text = extract_last_human_text([msg])
+            if text:
+                formatted_lines.append(f"Usuario: {text}")
+        elif isinstance(msg, AIMessage):
+            content = msg.content if isinstance(msg.content, str) else ""
+            if msg.tool_calls:
+                tool_names = ", ".join(
+                    tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
+                    for tc in msg.tool_calls
+                )
+                if content:
+                    content_preview = (
+                        content[:max_content_length] + "..."
+                        if len(content) > max_content_length
+                        else content
+                    )
+                    formatted_lines.append(f"Asistente: {content_preview} [Llamada a herramienta: {tool_names}]")
+                else:
+                    formatted_lines.append(f"Asistente: [Llamada a herramienta: {tool_names}]")
+            elif content:
+                content_preview = (
+                    content[:max_content_length] + "..."
+                    if len(content) > max_content_length
+                    else content
+                )
+                formatted_lines.append(f"Asistente: {content_preview}")
+        elif isinstance(msg, ToolMessage):
+            tool_content = str(msg.content or "")
+            preview = (
+                tool_content[:max_content_length] + "..."
+                if len(tool_content) > max_content_length
+                else tool_content
+            )
+            formatted_lines.append(f"[Resultado de herramienta: {preview}]")
+
+    return "\n".join(formatted_lines)
 
 
 __all__ = [
-    "MIN_TRIVIAL_CHAR_LENGTH",
     "PUNCTUATION_TO_STRIP",
     "TRIVIAL_CONVERSATIONAL_PHRASES",
     "extract_last_human_text",
+    "format_recent_history",
     "is_simple_greeting_or_trivial",
 ]
+

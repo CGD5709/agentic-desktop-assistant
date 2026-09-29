@@ -215,3 +215,113 @@ def test_websocket_confirmation_response_dispatcher(test_app_state):
 
     mock_conf_manager.resolve_confirmation.assert_called_once_with("conf-test-123", True)
 
+
+def test_websocket_email_action_discard(test_app_state):
+    """Verify that email_action discard_draft broadcasts email_draft_cleared event."""
+    client = TestClient(app)
+    with client.websocket_connect("/ws") as ws:
+        greeting = ws.receive_json()
+        assert greeting["type"] == "connected"
+
+        ws.send_json({
+            "type": "email_action",
+            "action": "discard_draft",
+            "draftId": "draft-123",
+        })
+
+        event = ws.receive_json()
+        assert event["type"] == "email_draft_cleared"
+        assert event["draftId"] == "draft-123"
+
+
+def test_websocket_email_action_approve_and_send(test_app_state):
+    """Verify that email_action approve_and_send triggers graph execution via app_graph."""
+    mock_graph = AsyncMock()
+    mock_msg = MagicMock()
+    mock_msg.content = "Correo enviado con éxito."
+    mock_graph.ainvoke.return_value = {"messages": [mock_msg]}
+    app.state.app_graph = mock_graph
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws") as ws:
+        greeting = ws.receive_json()
+        assert greeting["type"] == "connected"
+
+        ws.send_json({
+            "type": "email_action",
+            "action": "approve_and_send",
+            "draftId": "draft-456",
+            "account": "GMAIL",
+            "recipient": "test@example.com",
+            "subject": "Prueba",
+            "body": "Contenido del correo",
+        })
+
+        status_msg = ws.receive_json()
+        assert status_msg["type"] == "status"
+        assert status_msg["state"] == "THINKING"
+
+        reply = ws.receive_json()
+        assert reply["type"] == "assistant_message"
+        assert reply["content"] == "Correo enviado con éxito."
+
+        idle_msg = ws.receive_json()
+        assert idle_msg["type"] == "status"
+        assert idle_msg["state"] == "IDLE"
+
+    assert mock_graph.ainvoke.called
+
+
+def test_websocket_email_action_generate_draft(test_app_state):
+    """Verify that email_action generate_draft calls email_service and broadcasts email_draft_view."""
+    mock_runtime = test_app_state["runtime"]
+    mock_email_service = AsyncMock()
+    mock_draft = MagicMock()
+    mock_draft.model_dump.return_value = {
+        "type": "email_draft_view",
+        "draft_id": "draft-gen-1",
+        "original_message_id": "msg-101",
+        "recipient_email": "profe@uni.es",
+        "recipient_name": "Profesor",
+        "subject": "Re: Duda",
+        "draft_body": "Estimado profesor, gracias.",
+        "category": "UNIVERSITY",
+        "urgency_score": 3,
+        "account": "GMAIL",
+        "account_address": "alumno@gmail.com",
+        "original_snippet": "Snippet",
+        "created_at": "2026-09-29T10:00:00Z"
+    }
+    mock_email_service.create_draft.return_value = mock_draft
+    mock_runtime.email_service = mock_email_service
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws") as ws:
+        greeting = ws.receive_json()
+        assert greeting["type"] == "connected"
+
+        ws.send_json({
+            "type": "email_action",
+            "action": "generate_draft",
+            "email": {
+                "id": "msg-101",
+                "account": "GMAIL",
+                "account_address": "alumno@gmail.com",
+                "subject": "Duda",
+                "from_name": "Profesor",
+                "from_address": "profe@uni.es",
+                "reply_to_address": "profe@uni.es",
+                "body_text": "¿Vienes a la tutoría?",
+                "category": "UNIVERSITY",
+                "urgency_score": 3
+            },
+            "instructions": "Confirmar que iré"
+        })
+
+        draft_event = ws.receive_json()
+        assert draft_event["type"] == "email_draft_view"
+        assert draft_event["draft_id"] == "draft-gen-1"
+        assert draft_event["recipient_email"] == "profe@uni.es"
+
+
+

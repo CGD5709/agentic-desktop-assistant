@@ -13,6 +13,7 @@ from langgraph.graph import END, START, StateGraph
 from rabbitmq import RabbitMQClient
 from services.confirmation_manager import ConfirmationManager
 from services.connection_manager import WebSocketConnectionManager
+from .email_service import EmailAssistantService
 from .memory.async_manager import AsyncMemoryManager
 from .memory.profile_store import ProfileStore
 from .memory.short_term import SessionSummarizer
@@ -66,6 +67,7 @@ class AgentRuntime:
     confirmation_manager: ConfirmationManager = field(default_factory=ConfirmationManager)
     ws_manager: Optional[WebSocketConnectionManager] = None
     llm: Optional[BaseChatModel] = None
+    email_service: Optional[EmailAssistantService] = None
 
     async def initialize(self) -> None:
         """Initialize messaging connections and persistent memory stores."""
@@ -156,22 +158,6 @@ def create_agent_runtime(
 
     Eliminates global state and import-time side effects by creating fresh client,
     store, and node instances bound to the specified configuration.
-
-    Args:
-        profile_db_path: Filesystem path to SQLite profile database.
-        chroma_dir: Filesystem path to ChromaDB persistent vector storage.
-        debounce_seconds: Time window for debouncing asynchronous memory consolidation.
-        llm_model: Local Ollama model identifier.
-        llm_temperature: Sampling temperature for model generation.
-        llm_num_ctx: Context window size configured for local Ollama instances.
-        max_dialogue_tokens: History token budget for conversational context assembly.
-        mq_client: Optional pre-configured RabbitMQ client instance.
-        llm: Optional pre-configured language model instance.
-        confirmation_manager: Optional pre-configured ConfirmationManager instance for HITL.
-        ws_manager: Optional pre-configured WebSocketConnectionManager for frontend modals.
-
-    Returns:
-        Fully configured AgentRuntime container.
     """
     client = mq_client if mq_client is not None else RabbitMQClient()
     p_store = ProfileStore(db_path=profile_db_path)
@@ -195,6 +181,8 @@ def create_agent_runtime(
             num_ctx=llm_num_ctx,
         )
     )
+
+    email_service = EmailAssistantService(llm=chat_llm)
 
     router_node = RouterNode(
         llm=chat_llm,
@@ -225,6 +213,7 @@ def create_agent_runtime(
         dynamic_tools=tools,
         confirmation_manager=c_manager,
         ws_manager=ws_manager,
+        email_service=email_service,
     )
     summarize_node = SummarizeNode(
         llm=chat_llm,
@@ -255,6 +244,7 @@ def create_agent_runtime(
         confirmation_manager=c_manager,
         ws_manager=ws_manager,
         llm=chat_llm,
+        email_service=email_service,
     )
 
 
