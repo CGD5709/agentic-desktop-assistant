@@ -1,13 +1,25 @@
-import { ConfirmationRequest, EmailDraftData, EmailActionPayload, EmailItem } from '../types';
+import {
+  ConfirmationRequest,
+  EmailDraftData,
+  EmailActionPayload,
+  EmailItem,
+  ScheduledTask,
+  TaskCreatePayload,
+  TaskTriggeredPayload,
+} from "../types";
 
-type StatusCallback = (status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING') => void;
+type StatusCallback = (
+  status: "CONNECTED" | "DISCONNECTED" | "CONNECTING",
+) => void;
 type MessageCallback = (content: string, speechText?: string) => void;
-type AssistantStatusCallback = (state: 'THINKING' | 'IDLE') => void;
+type AssistantStatusCallback = (state: "THINKING" | "IDLE") => void;
 type ToolsCallback = (tools: string[]) => void;
 type ConfirmationCallback = (request: ConfirmationRequest) => void;
 type EmailDraftCallback = (draft: EmailDraftData) => void;
 type EmailDraftClearedCallback = (draftId?: string) => void;
 type UnreadEmailsCallback = (emails: EmailItem[]) => void;
+type TasksListCallback = (tasks: ScheduledTask[]) => void;
+type TaskTriggeredCallback = (payload: TaskTriggeredPayload) => void;
 
 export class JarvisWebSocketClient {
   private ws: WebSocket | null = null;
@@ -23,10 +35,13 @@ export class JarvisWebSocketClient {
   private onToolsListeners: Set<ToolsCallback> = new Set();
   private onConfirmationListeners: Set<ConfirmationCallback> = new Set();
   private onEmailDraftListeners: Set<EmailDraftCallback> = new Set();
-  private onEmailDraftClearedListeners: Set<EmailDraftClearedCallback> = new Set();
+  private onEmailDraftClearedListeners: Set<EmailDraftClearedCallback> =
+    new Set();
   private onUnreadEmailsListeners: Set<UnreadEmailsCallback> = new Set();
+  private onTasksListListeners: Set<TasksListCallback> = new Set();
+  private onTaskTriggeredListeners: Set<TaskTriggeredCallback> = new Set();
 
-  constructor(url: string = 'ws://localhost:8000/ws') {
+  constructor(url: string = "ws://localhost:8000/ws") {
     this.url = url;
   }
 
@@ -39,7 +54,11 @@ export class JarvisWebSocketClient {
   }
 
   public connect() {
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN ||
+        this.ws.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
@@ -49,7 +68,7 @@ export class JarvisWebSocketClient {
     }
 
     this.shouldReconnect = true;
-    this.notifyStatus('CONNECTING');
+    this.notifyStatus("CONNECTING");
 
     try {
       const ws = new WebSocket(this.url);
@@ -57,7 +76,7 @@ export class JarvisWebSocketClient {
 
       ws.onopen = () => {
         if (this.ws !== ws) return;
-        this.notifyStatus('CONNECTED');
+        this.notifyStatus("CONNECTED");
         this.startHeartbeat();
       };
 
@@ -67,14 +86,14 @@ export class JarvisWebSocketClient {
           const data = JSON.parse(event.data);
           this.handleIncomingMessage(data);
         } catch (err) {
-          console.warn('[WS] Error parsing incoming message:', err);
+          console.warn("[WS] Error parsing incoming message:", err);
         }
       };
 
       ws.onclose = () => {
         if (this.ws !== ws) return;
         this.stopHeartbeat();
-        this.notifyStatus('DISCONNECTED');
+        this.notifyStatus("DISCONNECTED");
         if (this.shouldReconnect) {
           this.scheduleReconnect();
         }
@@ -82,11 +101,11 @@ export class JarvisWebSocketClient {
 
       ws.onerror = (error) => {
         if (this.ws !== ws) return;
-        console.warn('[WS] Socket error event:', error);
+        console.warn("[WS] Socket error event:", error);
       };
     } catch (e) {
-      console.error('[WS] Connection initialization error:', e);
-      this.notifyStatus('DISCONNECTED');
+      console.error("[WS] Connection initialization error:", e);
+      this.notifyStatus("DISCONNECTED");
       this.scheduleReconnect();
     }
   }
@@ -108,22 +127,24 @@ export class JarvisWebSocketClient {
       try {
         socketToClose.close();
       } catch (err) {
-        console.warn('[WS] Error closing socket:', err);
+        console.warn("[WS] Error closing socket:", err);
       }
     }
-    this.notifyStatus('DISCONNECTED');
+    this.notifyStatus("DISCONNECTED");
   }
 
   public sendUserMessage(content: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[WS] Cannot send message: not connected.');
+      console.warn("[WS] Cannot send message: not connected.");
       return false;
     }
 
-    this.ws.send(JSON.stringify({
-      type: 'user_message',
-      content: content.trim()
-    }));
+    this.ws.send(
+      JSON.stringify({
+        type: "user_message",
+        content: content.trim(),
+      }),
+    );
     return true;
   }
 
@@ -132,9 +153,11 @@ export class JarvisWebSocketClient {
       return false;
     }
 
-    this.ws.send(JSON.stringify({
-      type: 'stop'
-    }));
+    this.ws.send(
+      JSON.stringify({
+        type: "stop",
+      }),
+    );
     return true;
   }
 
@@ -143,101 +166,121 @@ export class JarvisWebSocketClient {
       return false;
     }
 
-    this.ws.send(JSON.stringify({
-      type: 'clear_history'
-    }));
+    this.ws.send(
+      JSON.stringify({
+        type: "clear_history",
+      }),
+    );
     return true;
   }
 
   public sendConfirmationResponse(confirmationId: string, confirmed: boolean) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[WS] Cannot send confirmation: not connected.');
+      console.warn("[WS] Cannot send confirmation: not connected.");
       return false;
     }
 
-    this.ws.send(JSON.stringify({
-      type: 'confirmation_response',
-      confirmation_id: confirmationId,
-      confirmed: confirmed
-    }));
+    this.ws.send(
+      JSON.stringify({
+        type: "confirmation_response",
+        confirmation_id: confirmationId,
+        confirmed: confirmed,
+      }),
+    );
     return true;
   }
 
   public sendEmailAction(payload: EmailActionPayload) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[WS] Cannot send email action: not connected.');
+      console.warn("[WS] Cannot send email action: not connected.");
       return false;
     }
 
-    this.ws.send(JSON.stringify({
-      type: 'email_action',
-      ...payload
-    }));
+    this.ws.send(
+      JSON.stringify({
+        type: "email_action",
+        ...payload,
+      }),
+    );
     return true;
   }
 
   private handleIncomingMessage(data: any) {
     switch (data.type) {
-      case 'assistant_message':
-        this.onMessageListeners.forEach(cb => cb(data.content || '', data.speech_text));
+      case "assistant_message":
+        this.onMessageListeners.forEach((cb) =>
+          cb(data.content || "", data.speech_text),
+        );
         break;
-      case 'status':
-        this.onAssistantStatusListeners.forEach(cb => cb(data.state || 'IDLE'));
+      case "status":
+        this.onAssistantStatusListeners.forEach((cb) =>
+          cb(data.state || "IDLE"),
+        );
         break;
-      case 'connected':
+      case "connected":
         if (data.tools) {
-          this.onToolsListeners.forEach(cb => cb(data.tools));
+          this.onToolsListeners.forEach((cb) => cb(data.tools));
         }
         break;
-      case 'tools_updated':
+      case "tools_updated":
         if (data.tools) {
-          this.onToolsListeners.forEach(cb => cb(data.tools));
+          this.onToolsListeners.forEach((cb) => cb(data.tools));
         }
         break;
-      case 'unread_emails_list':
+      case "unread_emails_list":
         if (Array.isArray(data.emails)) {
-          this.onUnreadEmailsListeners.forEach(cb => cb(data.emails));
+          this.onUnreadEmailsListeners.forEach((cb) => cb(data.emails));
         }
         break;
-      case 'email_draft_view':
+      case "email_draft_view":
         if (data.draft_id || data.draftId || data.data) {
           const draftData: EmailDraftData = data.data || data;
-          this.onEmailDraftListeners.forEach(cb => cb(draftData));
+          this.onEmailDraftListeners.forEach((cb) => cb(draftData));
         }
         break;
-      case 'email_draft_cleared':
-        this.onEmailDraftClearedListeners.forEach(cb => cb(data.draft_id || data.draftId));
+      case "email_draft_cleared":
+        this.onEmailDraftClearedListeners.forEach((cb) =>
+          cb(data.draft_id || data.draftId),
+        );
         break;
-      case 'confirmation_request':
+      case "confirmation_request":
         const req: ConfirmationRequest = {
           confirmationId: data.confirmation_id,
           toolName: data.tool_name,
           arguments: data.arguments || {},
-          title: data.title || 'Confirmación de Acción Crítica',
-          message: data.message || '¿Deseas permitir esta operación?',
-          severity: data.severity || 'CRITICAL',
+          title: data.title || "Confirmación de Acción Crítica",
+          message: data.message || "¿Deseas permitir esta operación?",
+          severity: data.severity || "CRITICAL",
           target: data.target,
           details: data.details || {},
         };
-        this.onConfirmationListeners.forEach(cb => cb(req));
+        this.onConfirmationListeners.forEach((cb) => cb(req));
         break;
-      case 'pong':
+      case "tasks_list":
+        if (Array.isArray(data.tasks)) {
+          this.onTasksListListeners.forEach((cb) => cb(data.tasks));
+        }
+        break;
+      case "task_triggered":
+        this.onTaskTriggeredListeners.forEach((cb) => cb(data));
+        break;
+      case "pong":
         break;
       default:
         break;
     }
   }
 
-  private startHeartbeat() {
+  public startHeartbeat() {
     this.stopHeartbeat();
     this.pingInterval = window.setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ type: 'ping' }));
+        this.ws.send(JSON.stringify({ type: "ping" }));
       }
     }, 15000);
   }
 
-  private stopHeartbeat() {
+  public stopHeartbeat() {
     if (this.pingInterval) {
       window.clearInterval(this.pingInterval);
       this.pingInterval = null;
@@ -294,9 +337,51 @@ export class JarvisWebSocketClient {
     return () => this.onUnreadEmailsListeners.delete(cb);
   }
 
+  public onTasksList(cb: TasksListCallback) {
+    this.onTasksListListeners.add(cb);
+    return () => this.onTasksListListeners.delete(cb);
+  }
+
+  public onTaskTriggered(cb: TaskTriggeredCallback) {
+    this.onTaskTriggeredListeners.add(cb);
+    return () => this.onTaskTriggeredListeners.delete(cb);
+  }
+
+  public getTasks() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "tasks_get" }));
+    return true;
+  }
+
+  public createTask(task: TaskCreatePayload) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "task_create", task }));
+    return true;
+  }
+
+  public toggleTask(taskId: string, enabled: boolean) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(
+      JSON.stringify({ type: "task_toggle", task_id: taskId, enabled }),
+    );
+    return true;
+  }
+
+  public deleteTask(taskId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "task_delete", task_id: taskId }));
+    return true;
+  }
+
+  public runTaskNow(taskId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "task_run_now", task_id: taskId }));
+    return true;
+  }
+
   public generateEmailDraft(email: EmailItem, instructions?: string) {
     return this.sendEmailAction({
-      action: 'generate_draft',
+      action: "generate_draft",
       email_id: email.id,
       account: email.account,
       recipient: email.reply_to_address || email.from_address,
@@ -314,14 +399,14 @@ export class JarvisWebSocketClient {
         body_snippet: email.body_snippet,
         category: email.category,
         urgency_score: email.urgency_score,
-      }
+      },
     });
   }
 
-  private notifyStatus(status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING') {
-    this.onStatusListeners.forEach(cb => cb(status));
+  private notifyStatus(status: "CONNECTED" | "DISCONNECTED" | "CONNECTING") {
+    this.onStatusListeners.forEach((cb) => cb(status));
   }
 }
 
-// Instancia singleton compartida
+// Shared singleton instance
 export const wsService = new JarvisWebSocketClient();

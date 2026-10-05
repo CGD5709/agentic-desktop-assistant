@@ -4,22 +4,22 @@ Main application entry point for the JARVIS Reasoning Engine.
 Configures FastAPI, application lifespan lifecycle, CORS middleware,
 and mounts modular API routers following Layered Architecture principles.
 """
+
 import asyncio
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-import sys
-from typing import Any, Dict, Optional
+from typing import Any
 
+import uvicorn
+from agent import AgentRuntime, create_agent_runtime
+from api.websockets import router as websockets_router
+from config import settings
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph.state import CompiledStateGraph
-import uvicorn
-
-from agent import AgentRuntime, create_agent_runtime
-from api.websockets import router as websockets_router
-from config import settings
 from logger import get_logger, setup_logging
 from services.connection_manager import WebSocketConnectionManager
 from services.rabbitmq_listener import create_rabbitmq_message_handler
@@ -69,9 +69,14 @@ async def lifespan(app: FastAPI):
             loop = asyncio.get_running_loop()
             default_handler = loop.get_exception_handler()
 
-            def _windows_exception_handler(loop: asyncio.AbstractEventLoop, context: Dict[str, Any]) -> None:
+            def _windows_exception_handler(
+                loop: asyncio.AbstractEventLoop, context: dict[str, Any]
+            ) -> None:
                 exc = context.get("exception")
-                if isinstance(exc, ConnectionResetError) and getattr(exc, "winerror", None) == 10054:
+                if (
+                    isinstance(exc, ConnectionResetError)
+                    and getattr(exc, "winerror", None) == 10054
+                ):
                     return
                 if default_handler:
                     default_handler(loop, context)
@@ -117,7 +122,9 @@ async def lifespan(app: FastAPI):
             settings.PORT,
         )
     except Exception as graph_err:
-        logger.error("Failed to compile LangGraph state graph: %s", graph_err, exc_info=True)
+        logger.error(
+            "Failed to compile LangGraph state graph: %s", graph_err, exc_info=True
+        )
 
     try:
         yield
@@ -149,7 +156,7 @@ app.include_router(websockets_router)
 
 
 @app.get("/health")
-async def health_check(request: Request) -> Dict[str, Any]:
+async def health_check(request: Request) -> dict[str, Any]:
     """
     Service health check endpoint reporting engine readiness and registered external tools.
 
@@ -160,8 +167,8 @@ async def health_check(request: Request) -> Dict[str, Any]:
         Dictionary reporting health status ('ONLINE' or 'STARTING'), engine model,
         and current dynamic tool inventory.
     """
-    runtime: Optional[AgentRuntime] = getattr(request.app.state, "runtime", None)
-    app_graph: Optional[CompiledStateGraph] = getattr(request.app.state, "app_graph", None)
+    runtime: AgentRuntime | None = getattr(request.app.state, "runtime", None)
+    app_graph: CompiledStateGraph | None = getattr(request.app.state, "app_graph", None)
     dynamic_tools = runtime.dynamic_tools if runtime else []
     return {
         "status": "ONLINE" if app_graph is not None else "STARTING",

@@ -20,7 +20,7 @@ export class NotificationService {
    * Check if Notifications API is supported in the current environment.
    */
   public isSupported(): boolean {
-    return 'Notification' in window;
+    return "Notification" in window;
   }
 
   /**
@@ -28,15 +28,18 @@ export class NotificationService {
    */
   public async requestPermission(): Promise<NotificationPermission> {
     if (!this.isSupported()) {
-      return 'denied';
+      return "denied";
     }
 
-    if (Notification.permission === 'default') {
+    if (Notification.permission === "default") {
       try {
         return await Notification.requestPermission();
       } catch (err) {
-        console.warn('[NotificationService] Error solicitando permisos de notificación:', err);
-        return 'denied';
+        console.warn(
+          "[NotificationService] Error solicitando permisos de notificación:",
+          err,
+        );
+        return "denied";
       }
     }
 
@@ -54,13 +57,13 @@ export class NotificationService {
       icon?: string;
       tag?: string;
       requireInteraction?: boolean;
-    }
+    },
   ): Notification | null {
     if (!this.isSupported()) {
       return null;
     }
 
-    if (Notification.permission !== 'granted') {
+    if (Notification.permission !== "granted") {
       this.requestPermission();
       return null;
     }
@@ -69,7 +72,7 @@ export class NotificationService {
       const notification = new Notification(title, {
         body: options?.body,
         icon: options?.icon || undefined,
-        tag: options?.tag || 'jarvis-hitl-alert',
+        tag: options?.tag || "jarvis-hitl-alert",
         requireInteraction: options?.requireInteraction ?? true,
       });
 
@@ -80,7 +83,10 @@ export class NotificationService {
 
       return notification;
     } catch (err) {
-      console.warn('[NotificationService] Fallo al despachar notificación:', err);
+      console.warn(
+        "[NotificationService] Fallo al despachar notificación:",
+        err,
+      );
       return null;
     }
   }

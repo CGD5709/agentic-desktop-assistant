@@ -130,16 +130,14 @@ from memory import (
     VectorMemoryStore,
     AsyncMemoryManager,
     ContextAssembler,
-    SessionSummarizer
+    SessionSummarizer,
 )
 
 # 1. Initialization
 profile_store = ProfileStore(db_path="./data/assistant_profile.db")
 vector_store = VectorMemoryStore(persist_directory="./data/chroma_db")
 memory_manager = AsyncMemoryManager(
-    vector_store=vector_store,
-    profile_store=profile_store,
-    debounce_seconds=45.0
+    vector_store=vector_store, profile_store=profile_store, debounce_seconds=45.0
 )
 session_summarizer = SessionSummarizer()
 ```
@@ -148,7 +146,9 @@ session_summarizer = SessionSummarizer()
 ```python
 # Record user and assistant dialogue turns (resets background debounce timer)
 memory_manager.record_turn(role="user", content="I prefer TypeScript for all scripts.")
-memory_manager.record_turn(role="assistant", content="Understood. I will use TypeScript.")
+memory_manager.record_turn(
+    role="assistant", content="Understood. I will use TypeScript."
+)
 
 # Flush pending buffers during graceful shutdown
 await memory_manager.flush_and_close()
@@ -164,9 +164,7 @@ summary_context = session_summarizer.get_summary_context()
 
 # Tier 2: Semantic long-term memories
 retrieved_memories = await vector_store.search_memories(
-    query="My preferred language for scripts is python",
-    limit=3,
-    score_threshold=0.60
+    query="My preferred language for scripts is python", limit=3, score_threshold=0.60
 )
 ```
 
@@ -180,7 +178,7 @@ assembled_messages = ContextAssembler.assemble(
     retrieved_memories=retrieved_memories,
     session_summary_context=summary_context,
     max_dialogue_tokens=3000,
-    memory_store_formatter=vector_store.format_for_context
+    memory_store_formatter=vector_store.format_for_context,
 )
 ```
 

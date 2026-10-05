@@ -2,8 +2,9 @@
 Human-in-the-Loop (HITL) generic context formatter and metadata helpers.
 Operates dynamically on tool manifests and JSON Schema descriptors without hardcoded tool conditionals.
 """
+
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 def _humanize_key(key: str) -> str:
@@ -17,11 +18,12 @@ def _humanize_key(key: str) -> str:
     return key.replace("_", " ").title()
 
 
-def _safe_format_template(template: str, arguments: Dict[str, Any]) -> str:
+def _safe_format_template(template: str, arguments: dict[str, Any]) -> str:
     """
     Interpolate named argument placeholders into a template string safely without raising KeyError.
     Example: '{nombre_proceso}' with arguments={'nombre_proceso': 'calc.exe'} -> 'calc.exe'.
     """
+
     def replacer(match: re.Match) -> str:
         placeholder = match.group(1)
         val = arguments.get(placeholder)
@@ -36,9 +38,9 @@ def _safe_format_template(template: str, arguments: Dict[str, Any]) -> str:
 
 def generate_confirmation_context(
     tool_name: str,
-    arguments: Dict[str, Any],
-    tool_def: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    arguments: dict[str, Any],
+    tool_def: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Construct dynamic, structured human-readable context for any critical tool execution.
 
@@ -57,9 +59,7 @@ def generate_confirmation_context(
     title = f"Autorización: {humanized_name}"
 
     # 1. Resolve confirmation message dynamically
-    confirmation_template = (
-        tool_def.get("confirmation_template") if tool_def else None
-    )
+    confirmation_template = tool_def.get("confirmation_template") if tool_def else None
 
     if confirmation_template:
         message = _safe_format_template(confirmation_template, arguments)
@@ -76,7 +76,7 @@ def generate_confirmation_context(
     target_str = target_val if target_val else humanized_name
 
     # 3. Format structured argument details generically
-    details: Dict[str, str] = {}
+    details: dict[str, str] = {}
     for key, val in arguments.items():
         label = _humanize_key(key)
         details[label] = str(val) if val is not None else "N/A"

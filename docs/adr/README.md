@@ -16,3 +16,4 @@ This directory maintains the formal Architecture Decision Records for the distri
 | [ADR-008](./ADR-008-cascaded-audio-transducers-vs-native-audio-llm.md) | Cascaded Audio Transducers vs. Native End-to-End Multimodal Audio LLMs | Accepted | 2026-09-18 |
 | [ADR-009](./ADR-009-human-in-the-loop-safeguard-architecture.md) | Human-in-the-Loop Safeguard Architecture for Critical OS Tools | Accepted | 2026-09-20 |
 | [ADR-010](./ADR-010-intelligent-email-assistant-architecture.md) | Intelligent Email Assistant & Supervised Dispatch Architecture | Accepted | 2026-09-29 |
+| [ADR-011](./ADR-011-autonomous-task-scheduler-and-forward-looking-lifecycle.md) | Autonomous Task Scheduler with Strictly Forward-Looking Desktop Lifecycle | Accepted | 2026-10-01 |

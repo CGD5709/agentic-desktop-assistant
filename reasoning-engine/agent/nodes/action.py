@@ -2,10 +2,16 @@
 Action node responsible for dispatching tool calls to the execution service over RabbitMQ
 with Human-in-the-Loop (HITL) authorization for critical operations.
 """
+
 import time
-from typing import Any, Dict, Final, List, Optional, Set
 import uuid
+from typing import Any, Final
+
 from langchain_core.messages import AIMessage, ToolMessage
+from logger import get_logger
+from rabbitmq import RabbitMQClient
+from services.confirmation_manager import ConfirmationManager
+from services.connection_manager import WebSocketConnectionManager
 
 from ..hitl import generate_confirmation_context
 from ..models import (
@@ -16,10 +22,7 @@ from ..models import (
     EventType,
     ToolExecutionRequestPayload,
 )
-from logger import get_logger
-from rabbitmq import RabbitMQClient
-from services.confirmation_manager import ConfirmationManager
-from services.connection_manager import WebSocketConnectionManager
+from ..scheduler_tools import handle_scheduler_tool_execution
 
 logger = get_logger("reasoning_engine.agent.action")
 
@@ -31,7 +34,13 @@ DEFAULT_TOOL_SUCCESS_OUTPUT: Final[str] = "Action completed."
 MS_PER_SECOND: Final[int] = 1000
 
 # Built-in critical tools requiring confirmation if not explicitly overridden by discovery
-KNOWN_CRITICAL_TOOLS: Final[Set[str]] = {"matar_proceso", "enviar_correo_electronico"}
+KNOWN_CRITICAL_TOOLS: Final[set[str]] = {"matar_proceso", "enviar_correo_electronico"}
+SCHEDULER_TOOLS: Final[set[str]] = {
+    "programar_tarea",
+    "listar_tareas_programadas",
+    "cancelar_tarea_programada",
+    "pausar_reanudar_tarea",
+}
 
 
 class ActionNode:
@@ -44,10 +53,11 @@ class ActionNode:
     def __init__(
         self,
         mq_client: RabbitMQClient,
-        dynamic_tools: Optional[List[Dict[str, Any]]] = None,
-        confirmation_manager: Optional[ConfirmationManager] = None,
-        ws_manager: Optional[WebSocketConnectionManager] = None,
-        email_service: Optional[Any] = None,
+        dynamic_tools: list[dict[str, Any]] | None = None,
+        confirmation_manager: ConfirmationManager | None = None,
+        ws_manager: WebSocketConnectionManager | None = None,
+        email_service: Any | None = None,
+        task_scheduler: Any | None = None,
     ) -> None:
         """
         Initialize the action node with injected messaging client and HITL dependencies.
@@ -58,14 +68,16 @@ class ActionNode:
             confirmation_manager: Manager tracking pending user confirmation futures.
             ws_manager: WebSocket connection manager for dispatching confirmation modals to the frontend.
             email_service: Optional EmailAssistantService for semantic classification and draft creation.
+            task_scheduler: Optional TaskSchedulerService for native task scheduling operations.
         """
         self._mq_client = mq_client
         self._dynamic_tools = dynamic_tools if dynamic_tools is not None else []
         self._confirmation_manager = confirmation_manager
         self._ws_manager = ws_manager
         self._email_service = email_service
+        self._task_scheduler = task_scheduler
 
-    def _get_tool_definition(self, tool_name: str) -> Optional[Dict[str, Any]]:
+    def _get_tool_definition(self, tool_name: str) -> dict[str, Any] | None:
         """Look up tool descriptor dictionary from dynamic discovery registry."""
         for tool in self._dynamic_tools:
             if isinstance(tool, dict):
@@ -91,7 +103,7 @@ class ActionNode:
         return tool_name in KNOWN_CRITICAL_TOOLS
 
     async def _request_user_confirmation(
-        self, tool_name: str, tool_args: Dict[str, Any]
+        self, tool_name: str, tool_args: dict[str, Any]
     ) -> bool:
         """
         Request interactive confirmation from the user over WebSocket for critical actions.
@@ -112,7 +124,9 @@ class ActionNode:
 
         confirmation_id = f"conf-{uuid.uuid4()}"
         tool_def = self._get_tool_definition(tool_name)
-        context_data = generate_confirmation_context(tool_name, tool_args, tool_def=tool_def)
+        context_data = generate_confirmation_context(
+            tool_name, tool_args, tool_def=tool_def
+        )
 
         logger.info(
             "Requesting HITL confirmation for critical tool '%s' (conf_id=%s)",
@@ -129,20 +143,24 @@ class ActionNode:
                 tool_name=tool_name,
                 arguments=tool_args,
                 title=context_data.get("title", f"Confirmación de Acción: {tool_name}"),
-                message=context_data.get("message", f"¿Desea autorizar la ejecución de '{tool_name}'?"),
+                message=context_data.get(
+                    "message", f"¿Desea autorizar la ejecución de '{tool_name}'?"
+                ),
                 severity=context_data.get("severity", "CRITICAL"),
                 target=context_data.get("target", tool_name),
                 details=context_data.get("details", {}),
             )
 
-            await self._ws_manager.broadcast(confirmation_payload.model_dump(by_alias=False))
+            await self._ws_manager.broadcast(
+                confirmation_payload.model_dump(by_alias=False)
+            )
 
             confirmed = await future
             return confirmed
         finally:
             self._confirmation_manager.remove(confirmation_id)
 
-    async def __call__(self, state: AgentState) -> Dict[str, Any]:
+    async def __call__(self, state: AgentState) -> dict[str, Any]:
         """
         Dispatch all tool calls from the latest AI message and gather execution responses.
 
@@ -165,30 +183,59 @@ class ActionNode:
                 f"Expected last message in state to be an AIMessage, but received {type(last_message).__name__}"
             )
 
-        tool_messages: List[ToolMessage] = []
+        tool_messages: list[ToolMessage] = []
 
         for tool_call in last_message.tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
             tool_call_id = tool_call.get("id") or str(uuid.uuid4())
 
+            # Handle native Python task scheduler tools
+            if tool_name in SCHEDULER_TOOLS:
+                logger.info(
+                    "Executing native scheduler tool '%s' with args %s",
+                    tool_name,
+                    tool_args,
+                )
+                if self._task_scheduler:
+                    result_text = await handle_scheduler_tool_execution(
+                        tool_name, tool_args, self._task_scheduler
+                    )
+                else:
+                    result_text = "Error: El servicio de tareas programadas (TaskSchedulerService) no está activo."
+
+                tool_messages.append(
+                    ToolMessage(content=result_text, tool_call_id=tool_call_id)
+                )
+                continue
+
             # Check if this tool is critical and requires user confirmation
             if self.is_tool_critical(tool_name):
-                logger.info("Tool '%s' is critical. Initiating HITL authorization check...", tool_name)
+                logger.info(
+                    "Tool '%s' is critical. Initiating HITL authorization check...",
+                    tool_name,
+                )
                 confirmed = await self._request_user_confirmation(tool_name, tool_args)
 
                 if not confirmed:
-                    logger.info("HITL authorization denied by user for tool '%s'", tool_name)
+                    logger.info(
+                        "HITL authorization denied by user for tool '%s'", tool_name
+                    )
                     cancellation_text = (
                         f"Operación cancelada por el usuario. No se ha ejecutado la acción '{tool_name}' "
                         f"en el sistema operativo debido a que el usuario denegó la autorización."
                     )
                     tool_messages.append(
-                        ToolMessage(content=cancellation_text, tool_call_id=tool_call_id)
+                        ToolMessage(
+                            content=cancellation_text, tool_call_id=tool_call_id
+                        )
                     )
                     continue
 
-                logger.info("HITL authorization granted by user for tool '%s'. Proceeding with OS execution.", tool_name)
+                logger.info(
+                    "HITL authorization granted by user for tool '%s'. Proceeding with OS execution.",
+                    tool_name,
+                )
 
             request_payload = ToolExecutionRequestPayload(
                 tool_name=tool_name, arguments=tool_args
@@ -205,7 +252,11 @@ class ActionNode:
             )
 
             routing_key = f"{TOOL_REQUEST_ROUTING_KEY_PREFIX}{tool_name}"
-            logger.info("Dispatching tool execution request for '%s' (tool_call_id=%s)", tool_name, tool_call_id)
+            logger.info(
+                "Dispatching tool execution request for '%s' (tool_call_id=%s)",
+                tool_name,
+                tool_call_id,
+            )
 
             raw_response = await self._mq_client.send_and_wait(routing_key, envelope)
 
@@ -218,12 +269,21 @@ class ActionNode:
                 result_text = output if status == STATUS_SUCCESS else f"Error: {output}"
 
                 # Trigger unread emails dispatch & classification for central zone
-                if tool_name == "consultar_correos_no_leidos" and status == STATUS_SUCCESS and self._email_service and self._ws_manager:
+                if (
+                    tool_name == "consultar_correos_no_leidos"
+                    and status == STATUS_SUCCESS
+                    and self._email_service
+                    and self._ws_manager
+                ):
                     try:
-                        raw_emails = self._email_service.parse_emails_from_tool_output(output)
+                        raw_emails = self._email_service.parse_emails_from_tool_output(
+                            output
+                        )
                         emails_payload = []
                         for raw_email in raw_emails:
-                            classified = await self._email_service.classify_email(raw_email)
+                            classified = await self._email_service.classify_email(
+                                raw_email
+                            )
                             email_dict = {
                                 "id": raw_email.id,
                                 "account": raw_email.account,
@@ -231,12 +291,20 @@ class ActionNode:
                                 "subject": raw_email.subject,
                                 "from_name": raw_email.from_name,
                                 "from_address": raw_email.from_address,
-                                "reply_to_address": raw_email.reply_to_address or raw_email.from_address,
+                                "reply_to_address": raw_email.reply_to_address
+                                or raw_email.from_address,
                                 "to_addresses": raw_email.to_addresses,
                                 "cc_addresses": raw_email.cc_addresses,
                                 "received_at": raw_email.received_at,
-                                "body_snippet": raw_email.body_snippet or (raw_email.body_text[:200] if raw_email.body_text else ""),
-                                "body_text": raw_email.body_text or raw_email.body_snippet or "",
+                                "body_snippet": raw_email.body_snippet
+                                or (
+                                    raw_email.body_text[:200]
+                                    if raw_email.body_text
+                                    else ""
+                                ),
+                                "body_text": raw_email.body_text
+                                or raw_email.body_snippet
+                                or "",
                                 "has_attachments": raw_email.has_attachments,
                                 "attachment_names": raw_email.attachment_names,
                                 "category": classified.category.value,
@@ -247,13 +315,18 @@ class ActionNode:
                             emails_payload.append(email_dict)
 
                         if emails_payload:
-                            await self._ws_manager.broadcast({
-                                "type": "unread_emails_list",
-                                "total": len(emails_payload),
-                                "emails": emails_payload,
-                            })
+                            await self._ws_manager.broadcast(
+                                {
+                                    "type": "unread_emails_list",
+                                    "total": len(emails_payload),
+                                    "emails": emails_payload,
+                                }
+                            )
                     except Exception as email_err:
-                        logger.warning("Error processing email classification or drafts in ActionNode: %s", email_err)
+                        logger.warning(
+                            "Error processing email classification or drafts in ActionNode: %s",
+                            email_err,
+                        )
 
             tool_messages.append(
                 ToolMessage(content=result_text, tool_call_id=tool_call_id)
@@ -264,10 +337,10 @@ class ActionNode:
 
 __all__ = [
     "DEFAULT_SOURCE_ID",
-    "TOOL_REQUEST_ROUTING_KEY_PREFIX",
-    "STATUS_SUCCESS",
     "DEFAULT_TOOL_SUCCESS_OUTPUT",
-    "MS_PER_SECOND",
     "KNOWN_CRITICAL_TOOLS",
+    "MS_PER_SECOND",
+    "STATUS_SUCCESS",
+    "TOOL_REQUEST_ROUTING_KEY_PREFIX",
     "ActionNode",
 ]

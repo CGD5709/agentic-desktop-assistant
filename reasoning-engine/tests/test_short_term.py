@@ -1,12 +1,11 @@
-import pytest
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from agent.memory.short_term import (
-    trim_messages_token_budget,
+    SessionSummarizer,
     count_message_tokens,
     count_total_tokens,
     group_atomic_message_blocks,
-    SessionSummarizer
+    trim_messages_token_budget,
 )
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 
 def test_count_message_tokens():
@@ -18,7 +17,7 @@ def test_count_message_tokens():
 def test_atomic_blocks_grouping_with_tool_calls():
     ai_tool = AIMessage(
         content="",
-        tool_calls=[{"name": "kill_process", "args": {"pid": 1234}, "id": "call_abc"}]
+        tool_calls=[{"name": "kill_process", "args": {"pid": 1234}, "id": "call_abc"}],
     )
     tool_resp = ToolMessage(content="Proceso 1234 terminado", tool_call_id="call_abc")
     human_msg = HumanMessage(content="Gracias")
@@ -43,24 +42,24 @@ def test_trim_messages_within_budget():
 
 
 def test_trim_messages_preserves_atomic_tool_calls_when_cutting():
-    # Creamos un mensaje antiguo muy largo
+    # Create a very long old message
     old_msg = HumanMessage(content="Texto antiguo muy largo " * 50)
-    
-    # Bloque de herramienta
+
+    # Tool block
     ai_tool = AIMessage(
         content="",
-        tool_calls=[{"name": "list_files", "args": {"path": "."}, "id": "call_xyz"}]
+        tool_calls=[{"name": "list_files", "args": {"path": "."}, "id": "call_xyz"}],
     )
     tool_resp = ToolMessage(content="file1.txt, file2.txt", tool_call_id="call_xyz")
     recent_msg = HumanMessage(content="¿Qué archivos hay?")
 
     messages = [old_msg, ai_tool, tool_resp, recent_msg]
-    
-    # Ajustamos presupuesto para que quepan el bloque de tool y el mensaje reciente pero no el old_msg
+
+    # Adjust budget to fit the tool block and recent message but not old_msg
     budget = count_total_tokens([ai_tool, tool_resp, recent_msg]) + 10
     trimmed = trim_messages_token_budget(messages, max_tokens=budget)
 
-    # Debe descartar old_msg pero mantener intacto el bloque tool call + recent_msg
+    # Should discard old_msg but keep the tool call block + recent_msg intact
     assert old_msg not in trimmed
     assert ai_tool in trimmed
     assert tool_resp in trimmed

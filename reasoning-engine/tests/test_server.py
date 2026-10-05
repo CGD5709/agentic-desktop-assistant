@@ -3,12 +3,12 @@ Unit tests for the Layered Architecture Reasoning Engine server.
 Validates Dependency Injection via app.state, the WebSocket Dispatcher pattern in api/websockets.py,
 and the encapsulated RabbitMQ listener factory in services/rabbitmq_listener.py.
 """
+
 import json
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
-
-from api.websockets import handle_ping_message, handle_user_message
 from main import app
 from services.connection_manager import WebSocketConnectionManager
 from services.rabbitmq_listener import (
@@ -127,7 +127,10 @@ def test_convert_execution_tools_to_openai_format():
         {
             "name": "take_screenshot",
             "description": "Takes a screenshot of active display",
-            "parameters": {"type": "object", "properties": {"format": {"type": "string"}}},
+            "parameters": {
+                "type": "object",
+                "properties": {"format": {"type": "string"}},
+            },
         }
     ]
     converted = convert_execution_tools_to_openai_format(raw_tools)
@@ -175,11 +178,16 @@ def test_cors_allowed_and_blocked_origins():
 
     # Allowed origin (desktop-client on port 5173)
     res_allowed = client.get("/health", headers={"Origin": "http://localhost:5173"})
-    assert res_allowed.headers.get("access-control-allow-origin") == "http://localhost:5173"
+    assert (
+        res_allowed.headers.get("access-control-allow-origin")
+        == "http://localhost:5173"
+    )
     assert res_allowed.headers.get("access-control-allow-credentials") == "true"
 
     # Unauthorized origin
-    res_blocked = client.get("/health", headers={"Origin": "http://malicious-website.com"})
+    res_blocked = client.get(
+        "/health", headers={"Origin": "http://malicious-website.com"}
+    )
     assert res_blocked.headers.get("access-control-allow-origin") is None
 
 
@@ -207,13 +215,17 @@ def test_websocket_confirmation_response_dispatcher(test_app_state):
         greeting = ws.receive_json()
         assert greeting["type"] == "connected"
 
-        ws.send_json({
-            "type": "confirmation_response",
-            "confirmation_id": "conf-test-123",
-            "confirmed": True,
-        })
+        ws.send_json(
+            {
+                "type": "confirmation_response",
+                "confirmation_id": "conf-test-123",
+                "confirmed": True,
+            }
+        )
 
-    mock_conf_manager.resolve_confirmation.assert_called_once_with("conf-test-123", True)
+    mock_conf_manager.resolve_confirmation.assert_called_once_with(
+        "conf-test-123", True
+    )
 
 
 def test_websocket_email_action_discard(test_app_state):
@@ -223,11 +235,13 @@ def test_websocket_email_action_discard(test_app_state):
         greeting = ws.receive_json()
         assert greeting["type"] == "connected"
 
-        ws.send_json({
-            "type": "email_action",
-            "action": "discard_draft",
-            "draftId": "draft-123",
-        })
+        ws.send_json(
+            {
+                "type": "email_action",
+                "action": "discard_draft",
+                "draftId": "draft-123",
+            }
+        )
 
         event = ws.receive_json()
         assert event["type"] == "email_draft_cleared"
@@ -247,15 +261,17 @@ def test_websocket_email_action_approve_and_send(test_app_state):
         greeting = ws.receive_json()
         assert greeting["type"] == "connected"
 
-        ws.send_json({
-            "type": "email_action",
-            "action": "approve_and_send",
-            "draftId": "draft-456",
-            "account": "GMAIL",
-            "recipient": "test@example.com",
-            "subject": "Prueba",
-            "body": "Contenido del correo",
-        })
+        ws.send_json(
+            {
+                "type": "email_action",
+                "action": "approve_and_send",
+                "draftId": "draft-456",
+                "account": "GMAIL",
+                "recipient": "test@example.com",
+                "subject": "Prueba",
+                "body": "Contenido del correo",
+            }
+        )
 
         status_msg = ws.receive_json()
         assert status_msg["type"] == "status"
@@ -290,7 +306,7 @@ def test_websocket_email_action_generate_draft(test_app_state):
         "account": "GMAIL",
         "account_address": "alumno@gmail.com",
         "original_snippet": "Snippet",
-        "created_at": "2026-09-29T10:00:00Z"
+        "created_at": "2026-09-29T10:00:00Z",
     }
     mock_email_service.create_draft.return_value = mock_draft
     mock_runtime.email_service = mock_email_service
@@ -300,28 +316,27 @@ def test_websocket_email_action_generate_draft(test_app_state):
         greeting = ws.receive_json()
         assert greeting["type"] == "connected"
 
-        ws.send_json({
-            "type": "email_action",
-            "action": "generate_draft",
-            "email": {
-                "id": "msg-101",
-                "account": "GMAIL",
-                "account_address": "alumno@gmail.com",
-                "subject": "Duda",
-                "from_name": "Profesor",
-                "from_address": "profe@uni.es",
-                "reply_to_address": "profe@uni.es",
-                "body_text": "¿Vienes a la tutoría?",
-                "category": "UNIVERSITY",
-                "urgency_score": 3
-            },
-            "instructions": "Confirmar que iré"
-        })
+        ws.send_json(
+            {
+                "type": "email_action",
+                "action": "generate_draft",
+                "email": {
+                    "id": "msg-101",
+                    "account": "GMAIL",
+                    "account_address": "alumno@gmail.com",
+                    "subject": "Duda",
+                    "from_name": "Profesor",
+                    "from_address": "profe@uni.es",
+                    "reply_to_address": "profe@uni.es",
+                    "body_text": "¿Vienes a la tutoría?",
+                    "category": "UNIVERSITY",
+                    "urgency_score": 3,
+                },
+                "instructions": "Confirmar que iré",
+            }
+        )
 
         draft_event = ws.receive_json()
         assert draft_event["type"] == "email_draft_view"
         assert draft_event["draft_id"] == "draft-gen-1"
         assert draft_event["recipient_email"] == "profe@uni.es"
-
-
-

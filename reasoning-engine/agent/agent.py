@@ -4,15 +4,18 @@ Agent Orchestrator module for the Jarvis Desktop Assistant.
 Defines the AgentRuntime container, graph workflow assembly, and factory functions
 for building isolated, testable agent runtime environments with zero import-time side effects.
 """
+
 from dataclasses import dataclass, field
-from typing import Any, Dict, Final, List, Optional
+from typing import Any, Final
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, StateGraph
-
 from rabbitmq import RabbitMQClient
 from services.confirmation_manager import ConfirmationManager
 from services.connection_manager import WebSocketConnectionManager
+from services.task_scheduler import TaskSchedulerService
+
 from .email_service import EmailAssistantService
 from .memory.async_manager import AsyncMemoryManager
 from .memory.profile_store import ProfileStore
@@ -36,6 +39,7 @@ from .prompts import (
     ROUTER_PROMPT,
     SUMMARIZE_PROMPT,
 )
+from .scheduler_tools import SCHEDULER_TOOLS_DEFINITIONS
 
 # Configuration defaults for persistence, debouncing, and model execution
 DEFAULT_PROFILE_DB_PATH: Final[str] = "./data/assistant_profile.db"
@@ -45,9 +49,6 @@ DEFAULT_LLM_MODEL: Final[str] = "qwen2.5:7b"
 DEFAULT_LLM_TEMPERATURE: Final[float] = 0.2
 
 # Context window capacity for local Ollama execution.
-# Ollama defaults to num_ctx=2048 if omitted. Bumping to 8192 accommodates
-# system instructions (~500 tokens), user profile (~300 tokens), RAG memories (~500 tokens),
-# dialogue history budget (3000 tokens), and ample response generation headroom without silent truncation.
 DEFAULT_LLM_NUM_CTX: Final[int] = 8192
 
 
@@ -57,26 +58,34 @@ class AgentRuntime:
     Encapsulates an isolated agent runtime environment, including the LangGraph workflow
     and all associated messaging clients, persistence stores, and background managers.
     """
+
     graph: StateGraph
     mq_client: RabbitMQClient
     profile_store: ProfileStore
     vector_store: VectorMemoryStore
     memory_manager: AsyncMemoryManager
     session_summarizer: SessionSummarizer
-    dynamic_tools: List[Dict[str, Any]] = field(default_factory=list)
-    confirmation_manager: ConfirmationManager = field(default_factory=ConfirmationManager)
-    ws_manager: Optional[WebSocketConnectionManager] = None
-    llm: Optional[BaseChatModel] = None
-    email_service: Optional[EmailAssistantService] = None
+    dynamic_tools: list[dict[str, Any]] = field(default_factory=list)
+    confirmation_manager: ConfirmationManager = field(
+        default_factory=ConfirmationManager
+    )
+    ws_manager: WebSocketConnectionManager | None = None
+    llm: BaseChatModel | None = None
+    email_service: EmailAssistantService | None = None
+    task_scheduler: TaskSchedulerService | None = None
 
     async def initialize(self) -> None:
-        """Initialize messaging connections and persistent memory stores."""
+        """Initialize messaging connections, persistent memory stores, and task scheduler."""
         await self.mq_client.connect()
         await self.profile_store.initialize()
         await self.vector_store.initialize()
+        if self.task_scheduler:
+            await self.task_scheduler.start()
 
     async def close(self) -> None:
         """Flush pending background memories and cleanly close all active connections."""
+        if self.task_scheduler:
+            await self.task_scheduler.stop()
         await self.memory_manager.flush_and_close()
         await self.profile_store.close()
         await self.mq_client.close()
@@ -148,10 +157,10 @@ def create_agent_runtime(
     llm_temperature: float = DEFAULT_LLM_TEMPERATURE,
     llm_num_ctx: int = DEFAULT_LLM_NUM_CTX,
     max_dialogue_tokens: int = DEFAULT_MAX_DIALOGUE_TOKENS,
-    mq_client: Optional[RabbitMQClient] = None,
-    llm: Optional[BaseChatModel] = None,
-    confirmation_manager: Optional[ConfirmationManager] = None,
-    ws_manager: Optional[WebSocketConnectionManager] = None,
+    mq_client: RabbitMQClient | None = None,
+    llm: BaseChatModel | None = None,
+    confirmation_manager: ConfirmationManager | None = None,
+    ws_manager: WebSocketConnectionManager | None = None,
 ) -> AgentRuntime:
     """
     Construct an isolated AgentRuntime with clean dependency injection.
@@ -169,8 +178,16 @@ def create_agent_runtime(
         num_ctx=llm_num_ctx,
     )
     s_summarizer = SessionSummarizer()
-    c_manager = confirmation_manager if confirmation_manager is not None else ConfirmationManager()
-    tools: List[Dict[str, Any]] = []
+    c_manager = (
+        confirmation_manager
+        if confirmation_manager is not None
+        else ConfirmationManager()
+    )
+
+    # Initialize tools with built-in native scheduler tools
+    tools: list[dict[str, Any]] = list(SCHEDULER_TOOLS_DEFINITIONS)
+
+    task_scheduler = TaskSchedulerService(ws_manager=ws_manager)
 
     chat_llm = (
         llm
@@ -214,6 +231,7 @@ def create_agent_runtime(
         confirmation_manager=c_manager,
         ws_manager=ws_manager,
         email_service=email_service,
+        task_scheduler=task_scheduler,
     )
     summarize_node = SummarizeNode(
         llm=chat_llm,
@@ -233,7 +251,7 @@ def create_agent_runtime(
         summarize_node=summarize_node,
     )
 
-    return AgentRuntime(
+    runtime = AgentRuntime(
         graph=graph,
         mq_client=client,
         profile_store=p_store,
@@ -245,17 +263,20 @@ def create_agent_runtime(
         ws_manager=ws_manager,
         llm=chat_llm,
         email_service=email_service,
+        task_scheduler=task_scheduler,
     )
+    task_scheduler.runtime = runtime
+    return runtime
 
 
 __all__ = [
-    "DEFAULT_PROFILE_DB_PATH",
     "DEFAULT_CHROMA_DIR",
     "DEFAULT_DEBOUNCE_SECONDS",
     "DEFAULT_LLM_MODEL",
-    "DEFAULT_LLM_TEMPERATURE",
     "DEFAULT_LLM_NUM_CTX",
+    "DEFAULT_LLM_TEMPERATURE",
     "DEFAULT_MAX_DIALOGUE_TOKENS",
+    "DEFAULT_PROFILE_DB_PATH",
     "AgentRuntime",
     "create_agent_graph",
     "create_agent_runtime",

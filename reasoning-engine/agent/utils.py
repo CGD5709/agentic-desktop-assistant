@@ -1,40 +1,114 @@
 """
 Utility functions for text processing, message history parsing, and conversational heuristics.
 """
-from typing import Final, Sequence
+
+from collections.abc import Sequence
+from typing import Final
+
 from langchain_core.messages import BaseMessage, HumanMessage
 
 # Punctuation marks stripped during trivial text normalization
 PUNCTUATION_TO_STRIP: Final[str] = ".!¡?¿,;:…"
 
 # Normalized set of conversational greetings, acknowledgements, and farewells
-TRIVIAL_CONVERSATIONAL_PHRASES: Final[frozenset[str]] = frozenset({
-    # Greetings
-    "hola", "buenas", "buenos días", "buenos dias", "buenas tardes", "buenas noches",
-    "hey", "hi", "hello", "holis", "qué tal", "que tal", "alo", "aló", "saludos",
-    
-    # Farewells
-    "adiós", "adios", "chao", "chau", "bye", "bye bye", "nos vemos", 
-    "hasta luego", "hasta pronto", "hasta mañana", "ciao", "chao chao",
-    
-    # Gratitude & Courtesy
-    "gracias", "muchas gracias", "mil gracias", "te lo agradezco", "thx", "ty", "thanks",
-    "de nada", "no hay de qué", "no hay de que", "un placer",
-    
-    # Acknowledgements & Affirmations
-    "ok", "oki", "okis", "okey", "vale", "perfecto", "genial", "guay", "entendido", 
-    "de acuerdo", "claro", "exacto", "eso es", "sí", "si", "sip", "sisi", "yes", 
-    "yep", "yup", "obvio", "estupendo", "maravilloso", "listo", "perfe",
-    
-    # Negations
-    "no", "nop", "nah", "nanai",
-    
-    # Laughter & Reactions
-    "jaja", "jajaja", "jajajaja", "jeje", "jejeje", "xd", "xdd", "xddd", "lol", "lmao",
-    
-    # Fillers & Politeness markers
-    "bueno", "pues", "a ver", "hmm", "umm", "eh", "por favor", "plis", "pls", "porfa"
-})
+TRIVIAL_CONVERSATIONAL_PHRASES: Final[frozenset[str]] = frozenset(
+    {
+        # Greetings
+        "hola",
+        "buenas",
+        "buenos días",
+        "buenos dias",
+        "buenas tardes",
+        "buenas noches",
+        "hey",
+        "hi",
+        "hello",
+        "holis",
+        "qué tal",
+        "que tal",
+        "alo",
+        "aló",
+        "saludos",
+        # Farewells
+        "adiós",
+        "adios",
+        "chao",
+        "chau",
+        "bye",
+        "bye bye",
+        "nos vemos",
+        "hasta luego",
+        "hasta pronto",
+        "hasta mañana",
+        "ciao",
+        "chao chao",
+        # Gratitude & Courtesy
+        "gracias",
+        "muchas gracias",
+        "mil gracias",
+        "te lo agradezco",
+        "thx",
+        "ty",
+        "thanks",
+        "de nada",
+        "no hay de qué",
+        "no hay de que",
+        "un placer",
+        # Acknowledgements & Affirmations
+        "ok",
+        "oki",
+        "okis",
+        "okey",
+        "vale",
+        "perfecto",
+        "genial",
+        "guay",
+        "entendido",
+        "de acuerdo",
+        "claro",
+        "exacto",
+        "eso es",
+        "sí",
+        "si",
+        "sip",
+        "sisi",
+        "yes",
+        "yep",
+        "yup",
+        "obvio",
+        "estupendo",
+        "maravilloso",
+        "listo",
+        "perfe",
+        # Negations
+        "no",
+        "nop",
+        "nah",
+        "nanai",
+        # Laughter & Reactions
+        "jaja",
+        "jajaja",
+        "jajajaja",
+        "jeje",
+        "jejeje",
+        "xd",
+        "xdd",
+        "xddd",
+        "lol",
+        "lmao",
+        # Fillers & Politeness markers
+        "bueno",
+        "pues",
+        "a ver",
+        "hmm",
+        "umm",
+        "eh",
+        "por favor",
+        "plis",
+        "pls",
+        "porfa",
+    }
+)
 
 
 def extract_last_human_text(messages: Sequence[BaseMessage]) -> str:
@@ -58,7 +132,11 @@ def extract_last_human_text(messages: Sequence[BaseMessage]) -> str:
                 for item in msg.content:
                     if isinstance(item, str):
                         extracted_parts.append(item)
-                    elif isinstance(item, dict) and "text" in item and isinstance(item["text"], str):
+                    elif (
+                        isinstance(item, dict)
+                        and "text" in item
+                        and isinstance(item["text"], str)
+                    ):
                         extracted_parts.append(item["text"])
                 return " ".join(part for part in extracted_parts if part)
     return ""
@@ -118,8 +196,7 @@ def format_recent_history(
 
     # Filter out SystemMessages and slice the most recent dialogue turns
     prior_messages = [
-        msg for msg in messages[:last_human_idx]
-        if not isinstance(msg, SystemMessage)
+        msg for msg in messages[:last_human_idx] if not isinstance(msg, SystemMessage)
     ]
 
     if not prior_messages:
@@ -137,7 +214,9 @@ def format_recent_history(
             content = msg.content if isinstance(msg.content, str) else ""
             if msg.tool_calls:
                 tool_names = ", ".join(
-                    tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
+                    tc.get("name", "")
+                    if isinstance(tc, dict)
+                    else getattr(tc, "name", "")
                     for tc in msg.tool_calls
                 )
                 if content:
@@ -146,9 +225,13 @@ def format_recent_history(
                         if len(content) > max_content_length
                         else content
                     )
-                    formatted_lines.append(f"Asistente: {content_preview} [Llamada a herramienta: {tool_names}]")
+                    formatted_lines.append(
+                        f"Asistente: {content_preview} [Llamada a herramienta: {tool_names}]"
+                    )
                 else:
-                    formatted_lines.append(f"Asistente: [Llamada a herramienta: {tool_names}]")
+                    formatted_lines.append(
+                        f"Asistente: [Llamada a herramienta: {tool_names}]"
+                    )
             elif content:
                 content_preview = (
                     content[:max_content_length] + "..."
@@ -175,4 +258,3 @@ __all__ = [
     "format_recent_history",
     "is_simple_greeting_or_trivial",
 ]
-

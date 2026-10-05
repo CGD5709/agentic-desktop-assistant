@@ -1,14 +1,17 @@
 import re
-from typing import List, Sequence, Optional, Any, Callable, Union
-from langchain_core.messages import BaseMessage, SystemMessage, AIMessage
-from .short_term import trim_messages_token_budget
+from collections.abc import Callable, Sequence
+from typing import Any
+
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
+
 from .models import MemoryItem
+from .short_term import trim_messages_token_budget
 
 # Default token allocation for dynamic dialogue history pruning
 DEFAULT_MAX_DIALOGUE_TOKENS = 3000
 
 
-def _default_memory_formatter(memories: Sequence[Union[MemoryItem, Any]]) -> str:
+def _default_memory_formatter(memories: Sequence[MemoryItem | Any]) -> str:
     """
     Formats a sequence of retrieved memory items into standard XML-tagged context.
     Acts as a fallback formatter when a custom store-specific formatter is not provided.
@@ -22,9 +25,14 @@ def _default_memory_formatter(memories: Sequence[Union[MemoryItem, Any]]) -> str
     if not memories:
         return ""
 
-    lines = ["<auxiliary_context>", "Información relevante recuperada de sesiones anteriores:"]
+    lines = [
+        "<auxiliary_context>",
+        "Información relevante recuperada de sesiones anteriores:",
+    ]
     for mem in memories:
-        text = mem.get("text", "") if isinstance(mem, dict) else getattr(mem, "text", "")
+        text = (
+            mem.get("text", "") if isinstance(mem, dict) else getattr(mem, "text", "")
+        )
         if text:
             lines.append(f"- {text}")
     lines.append("</auxiliary_context>")
@@ -76,12 +84,12 @@ class ContextAssembler:
     def assemble(
         base_system_prompt: str,
         messages: Sequence[BaseMessage],
-        profile_context: Optional[str] = None,
-        retrieved_memories: Optional[Sequence[Any]] = None,
-        session_summary_context: Optional[str] = None,
+        profile_context: str | None = None,
+        retrieved_memories: Sequence[Any] | None = None,
+        session_summary_context: str | None = None,
         max_dialogue_tokens: int = DEFAULT_MAX_DIALOGUE_TOKENS,
-        memory_store_formatter: Optional[Callable[[Sequence[Any]], str]] = None,
-    ) -> List[BaseMessage]:
+        memory_store_formatter: Callable[[Sequence[Any]], str] | None = None,
+    ) -> list[BaseMessage]:
         """
         Constructs the final, structured sequence of messages for LLM invocation.
 
@@ -100,7 +108,7 @@ class ContextAssembler:
         Returns:
             List[BaseMessage]: Ordered message sequence ready for direct model invocation.
         """
-        system_sections: List[str] = []
+        system_sections: list[str] = []
         if base_system_prompt and base_system_prompt.strip():
             system_sections.append(base_system_prompt.strip())
 

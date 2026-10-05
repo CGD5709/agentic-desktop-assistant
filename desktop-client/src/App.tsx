@@ -1,67 +1,47 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { TabType, ChatMessage, TaskItem, AppSettings, ConfirmationRequest, EmailDraftData, EmailItem } from './types';
-import { HeaderHUD } from './components/HeaderHUD';
-import { ChatPanel } from './components/ChatPanel';
-import { ArcReactorHUD } from './components/ArcReactorHUD';
-import { TasksPanel } from './components/TasksPanel';
-import { SettingsView } from './components/SettingsView';
-import { ConfirmationModal } from './components/ConfirmationModal';
-import { EmailReviewDeck } from './components/EmailReviewDeck';
-import { wsService } from './services/websocket';
-import { notificationService } from './services/notifications';
-import { useVoice } from './hooks/useVoice';
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import {
+  TabType,
+  ChatMessage,
+  AppSettings,
+  ConfirmationRequest,
+  EmailDraftData,
+  EmailItem,
+  ScheduledTask,
+  TaskCreatePayload,
+} from "./types";
+import { HeaderHUD } from "./components/HeaderHUD";
+import { ChatPanel } from "./components/ChatPanel";
+import { ArcReactorHUD } from "./components/ArcReactorHUD";
+import { TasksPanel } from "./components/TasksPanel";
+import { ScheduledTaskModal } from "./components/ScheduledTaskModal";
+import { SettingsView } from "./components/SettingsView";
+import { ConfirmationModal } from "./components/ConfirmationModal";
+import { EmailReviewDeck } from "./components/EmailReviewDeck";
+import { wsService } from "./services/websocket";
+import { notificationService } from "./services/notifications";
+import { useVoice } from "./hooks/useVoice";
 
 const DEFAULT_SETTINGS: AppSettings = {
-  wsUrl: 'ws://localhost:8000/ws',
-  globalHotkey: 'Numpad3',
-  hotkeyDisplayName: 'NUMPAD 3',
-  modelName: 'qwen2.5:7b',
-  temperature: 0.2,
+  wsUrl: "ws://localhost:8000/ws",
+  globalHotkey: "Numpad3",
+  hotkeyDisplayName: "NUMPAD 3",
   audioSensitivity: 80,
   autoSpeakResponse: false,
-  pttMode: 'hold',
-  ttsVoiceURI: '',
+  pttMode: "hold",
+  ttsVoiceURI: "",
   ttsRate: 1.05,
   ttsPitch: 1.0,
-  soundEffects: true
+  soundEffects: true,
 };
 
-const INITIAL_TASKS: TaskItem[] = [
-  {
-    id: 't-1',
-    title: 'Diagnóstico de Procesos del Sistema',
-    description: 'Monitorear los procesos que consumen más de 500 MB de RAM.',
-    status: 'DONE',
-    priority: 'MEDIUM',
-    category: 'SYSTEM',
-    createdAt: '10:15:00'
-  },
-  {
-    id: 't-2',
-    title: 'Control de Audio del Sistema',
-    description: 'Ajustar y monitorear los niveles de sonido maestro en Windows.',
-    status: 'IN_PROGRESS',
-    priority: 'HIGH',
-    category: 'AUDIO',
-    createdAt: '10:45:12'
-  },
-  {
-    id: 't-3',
-    title: 'Sincronizar Almacén de Memoria a Largo Plazo',
-    description: 'Indexar nuevas preferencias del usuario en ChromaDB.',
-    status: 'PENDING',
-    priority: 'LOW',
-    category: 'MEMORY',
-    createdAt: '11:00:30'
-  }
-];
-
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<TabType>('home');
+  const [activeTab, setActiveTab] = useState<TabType>("home");
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
-      const saved = localStorage.getItem('jarvis_settings');
-      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : DEFAULT_SETTINGS;
+      const saved = localStorage.getItem("jarvis_settings");
+      return saved
+        ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) }
+        : DEFAULT_SETTINGS;
     } catch {
       return DEFAULT_SETTINGS;
     }
@@ -70,20 +50,33 @@ export const App: React.FC = () => {
   const [chatWidth, setChatWidth] = useState<number>(360);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
-      id: 'm-welcome',
-      sender: 'jarvis',
-      content: 'Buenos días. Todos los sistemas de asistencia y ejecución están en línea y a su completa disposición.',
-      speechText: 'Buenos días. Todos los sistemas de asistencia y ejecución están en línea y a su completa disposición.',
-      timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-    }
+      id: "m-welcome",
+      sender: "jarvis",
+      content:
+        "Buenos días. Todos los sistemas de asistencia y ejecución están en línea y a su completa disposición.",
+      speechText:
+        "Buenos días. Todos los sistemas de asistencia y ejecución están en línea y a su completa disposición.",
+      timestamp: new Date().toLocaleTimeString("es-ES", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    },
   ]);
-  const [tasks] = useState<TaskItem[]>(INITIAL_TASKS);
-  const [connectionStatus, setConnectionStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'CONNECTING'>('CONNECTING');
-  const [assistantStatus, setAssistantStatus] = useState<'THINKING' | 'IDLE'>('IDLE');
+  const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState<boolean>(false);
+  const [availableToolsList, setAvailableToolsList] = useState<string[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "CONNECTED" | "DISCONNECTED" | "CONNECTING"
+  >("CONNECTING");
+  const [assistantStatus, setAssistantStatus] = useState<"THINKING" | "IDLE">(
+    "IDLE",
+  );
   const [toolsCount, setToolsCount] = useState<number>(5);
-  const [pendingConfirmation, setPendingConfirmation] = useState<ConfirmationRequest | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] =
+    useState<ConfirmationRequest | null>(null);
   const [unreadEmails, setUnreadEmails] = useState<EmailItem[]>([]);
-  const [activeEmailDraft, setActiveEmailDraft] = useState<EmailDraftData | null>(null);
+  const [activeEmailDraft, setActiveEmailDraft] =
+    useState<EmailDraftData | null>(null);
 
   const autoSpeakRef = useRef(settings.autoSpeakResponse);
   autoSpeakRef.current = settings.autoSpeakResponse;
@@ -96,12 +89,15 @@ export const App: React.FC = () => {
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      sender: 'user',
+      sender: "user",
       content: text.trim(),
-      timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+      timestamp: new Date().toLocaleTimeString("es-ES", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     wsService.sendUserMessage(text.trim());
   }, []);
 
@@ -114,7 +110,7 @@ export const App: React.FC = () => {
     stopListening,
     toggleListening,
     cancelSpeech,
-    speak
+    speak,
   } = useVoice({
     hotkey: settings.globalHotkey,
     pttMode: settings.pttMode,
@@ -122,70 +118,102 @@ export const App: React.FC = () => {
     ttsRate: settings.ttsRate,
     ttsPitch: settings.ttsPitch,
     soundEffects: settings.soundEffects,
-    onFinalTranscript: handleSendMessage
+    onFinalTranscript: handleSendMessage,
   });
 
   // Stop controller: aborts active speech and active reasoning turn
   const handleStop = useCallback(() => {
     cancelSpeech();
     wsService.sendStop();
-    setAssistantStatus('IDLE');
+    setAssistantStatus("IDLE");
     setPendingConfirmation(null);
   }, [cancelSpeech]);
 
   // Human-in-the-Loop confirmation handlers
   const handleConfirmAction = useCallback(() => {
     if (pendingConfirmation) {
-      wsService.sendConfirmationResponse(pendingConfirmation.confirmationId, true);
+      wsService.sendConfirmationResponse(
+        pendingConfirmation.confirmationId,
+        true,
+      );
       setPendingConfirmation(null);
     }
   }, [pendingConfirmation]);
 
   const handleCancelAction = useCallback(() => {
     if (pendingConfirmation) {
-      wsService.sendConfirmationResponse(pendingConfirmation.confirmationId, false);
+      wsService.sendConfirmationResponse(
+        pendingConfirmation.confirmationId,
+        false,
+      );
       setPendingConfirmation(null);
     }
   }, [pendingConfirmation]);
 
   // Email subsystem action handlers
-  const handleGenerateEmailDraft = useCallback((email: EmailItem, instructions?: string) => {
-    wsService.generateEmailDraft(email, instructions);
-  }, []);
+  const handleGenerateEmailDraft = useCallback(
+    (email: EmailItem, instructions?: string) => {
+      wsService.generateEmailDraft(email, instructions);
+    },
+    [],
+  );
 
-  const handleApproveAndSendEmail = useCallback((
-    draftId: string,
-    account: string,
-    recipient: string,
-    subject: string,
-    body: string,
-    emailId: string
-  ) => {
-    wsService.sendEmailAction({
-      action: 'approve_and_send',
-      draft_id: draftId,
-      account,
-      recipient,
-      subject,
-      body,
-      email_id: emailId
-    });
-  }, []);
+  const handleApproveAndSendEmail = useCallback(
+    (
+      draftId: string,
+      account: string,
+      recipient: string,
+      subject: string,
+      body: string,
+      emailId: string,
+    ) => {
+      wsService.sendEmailAction({
+        action: "approve_and_send",
+        draft_id: draftId,
+        account,
+        recipient,
+        subject,
+        body,
+        email_id: emailId,
+      });
+    },
+    [],
+  );
 
-  const handleDiscardEmailDraft = useCallback((draftId: string, emailId: string) => {
-    wsService.sendEmailAction({
-      action: 'discard_draft',
-      draft_id: draftId,
-      email_id: emailId
-    });
-    if (activeEmailDraft?.draft_id === draftId) {
-      setActiveEmailDraft(null);
-    }
-  }, [activeEmailDraft]);
+  const handleDiscardEmailDraft = useCallback(
+    (draftId: string, emailId: string) => {
+      wsService.sendEmailAction({
+        action: "discard_draft",
+        draft_id: draftId,
+        email_id: emailId,
+      });
+      if (activeEmailDraft?.draft_id === draftId) {
+        setActiveEmailDraft(null);
+      }
+    },
+    [activeEmailDraft],
+  );
 
   const handleCloseEmailDeck = useCallback(() => {
     setUnreadEmails([]);
     setActiveEmailDraft(null);
+  }, []);
+
+  // Scheduled Tasks action handlers
+  const handleCreateTask = useCallback((taskPayload: TaskCreatePayload) => {
+    wsService.createTask(taskPayload);
+  }, []);
+
+  const handleToggleTask = useCallback((taskId: string, enabled: boolean) => {
+    wsService.toggleTask(taskId, enabled);
+  }, []);
+
+  const handleDeleteTask = useCallback((taskId: string) => {
+    wsService.deleteTask(taskId);
+  }, []);
+
+  const handleRunTaskNow = useCallback((taskId: string) => {
+    wsService.runTaskNow(taskId);
   }, []);
 
   // WebSocket subscription lifecycle
@@ -195,23 +223,53 @@ export const App: React.FC = () => {
     wsService.setUrl(settings.wsUrl);
     wsService.connect();
 
-    const unsubStatus = wsService.onStatus(status => {
+    const unsubStatus = wsService.onStatus((status) => {
       setConnectionStatus(status);
     });
 
-    const unsubAssistantStatus = wsService.onAssistantStatus(state => {
+    const unsubAssistantStatus = wsService.onAssistantStatus((state) => {
       setAssistantStatus(state);
     });
 
-    const unsubTools = wsService.onTools(toolsList => {
+    const unsubTools = wsService.onTools((toolsList) => {
       setToolsCount(toolsList.length);
+      setAvailableToolsList(toolsList);
     });
 
-    const unsubUnreadEmails = wsService.onUnreadEmails(emails => {
+    const unsubTasks = wsService.onTasksList((tasksList) => {
+      setTasks(tasksList);
+    });
+
+    const unsubTaskTriggered = wsService.onTaskTriggered((payload) => {
+      const taskMsg: ChatMessage = {
+        id: `msg-task-${Date.now()}`,
+        sender: "system",
+        content: `⏰ Tarea programada ejecutada: ${payload.name} [${payload.status}]`,
+        speechText: payload.speech_text,
+        timestamp: new Date().toLocaleTimeString("es-ES", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+      setMessages((prev) => [...prev, taskMsg]);
+
+      if (
+        payload.speech_text &&
+        (payload.notify_voice !== false || autoSpeakRef.current)
+      ) {
+        speak(payload.speech_text);
+      }
+
+      notificationService.sendNotification(`JARVIS - Tarea: ${payload.name}`, {
+        body: payload.speech_text || `Estado: ${payload.status}`,
+      });
+    });
+
+    const unsubUnreadEmails = wsService.onUnreadEmails((emails) => {
       setUnreadEmails(emails);
     });
 
-    const unsubEmailDraft = wsService.onEmailDraft(draft => {
+    const unsubEmailDraft = wsService.onEmailDraft((draft) => {
       setActiveEmailDraft(draft);
     });
 
@@ -219,27 +277,33 @@ export const App: React.FC = () => {
       setActiveEmailDraft(null);
     });
 
-    const unsubConfirmation = wsService.onConfirmationRequest(req => {
+    const unsubConfirmation = wsService.onConfirmationRequest((req) => {
       setPendingConfirmation(req);
 
       // Trigger OS desktop notification if window is minimized or unfocused
       if (document.hidden || !document.hasFocus()) {
-        notificationService.sendNotification(`[CONFIRMACIÓN REQUERIDA] JARVIS - ${req.title}`, {
-          body: req.message,
-          requireInteraction: true,
-        });
+        notificationService.sendNotification(
+          `[CONFIRMACIÓN REQUERIDA] JARVIS - ${req.title}`,
+          {
+            body: req.message,
+            requireInteraction: true,
+          },
+        );
       }
     });
 
     const unsubMessage = wsService.onMessage((content, speechText) => {
       const newMsg: ChatMessage = {
         id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        sender: 'jarvis',
+        sender: "jarvis",
         content: content,
         speechText: speechText,
-        timestamp: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        timestamp: new Date().toLocaleTimeString("es-ES", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
       };
-      setMessages(prev => [...prev, newMsg]);
+      setMessages((prev) => [...prev, newMsg]);
 
       if (autoSpeakRef.current && (speechText || content)) {
         speak(speechText || content);
@@ -250,6 +314,8 @@ export const App: React.FC = () => {
       unsubStatus();
       unsubAssistantStatus();
       unsubTools();
+      unsubTasks();
+      unsubTaskTriggered();
       unsubUnreadEmails();
       unsubEmailDraft();
       unsubEmailDraftCleared();
@@ -266,18 +332,20 @@ export const App: React.FC = () => {
 
   const handleSaveSettings = useCallback((newSettings: AppSettings) => {
     setSettings(newSettings);
-    localStorage.setItem('jarvis_settings', JSON.stringify(newSettings));
+    localStorage.setItem("jarvis_settings", JSON.stringify(newSettings));
   }, []);
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden',
-      position: 'relative'
-    }}>
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        position: "relative",
+      }}
+    >
       {/* Human-in-the-Loop Confirmation Modal */}
       {pendingConfirmation && (
         <ConfirmationModal
@@ -286,6 +354,14 @@ export const App: React.FC = () => {
           onCancel={handleCancelAction}
         />
       )}
+
+      {/* Scheduled Task Builder Modal */}
+      <ScheduledTaskModal
+        isOpen={isTaskModalOpen}
+        availableTools={availableToolsList}
+        onClose={() => setIsTaskModalOpen(false)}
+        onCreateTask={handleCreateTask}
+      />
 
       {/* Top Header HUD */}
       <HeaderHUD
@@ -299,15 +375,17 @@ export const App: React.FC = () => {
       />
 
       {/* Main Workspace */}
-      <main style={{
-        flex: 1,
-        display: 'flex',
-        padding: '0 16px 16px 16px',
-        gap: '14px',
-        overflow: 'hidden',
-        position: 'relative'
-      }}>
-        {activeTab === 'home' ? (
+      <main
+        style={{
+          flex: 1,
+          display: "flex",
+          padding: "0 16px 16px 16px",
+          gap: "14px",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        {activeTab === "home" ? (
           <>
             {/* Chat Panel */}
             <ChatPanel
@@ -334,29 +412,29 @@ export const App: React.FC = () => {
                   unreadEmails.length > 0
                     ? unreadEmails
                     : activeEmailDraft
-                    ? [
-                        {
-                          id: activeEmailDraft.original_message_id,
-                          account: activeEmailDraft.account,
-                          account_address: activeEmailDraft.account_address,
-                          subject: activeEmailDraft.subject,
-                          from_name: activeEmailDraft.recipient_name,
-                          from_address: activeEmailDraft.recipient_email,
-                          reply_to_address: activeEmailDraft.recipient_email,
-                          received_at: activeEmailDraft.created_at,
-                          body_snippet: activeEmailDraft.original_snippet,
-                          body_text: activeEmailDraft.original_snippet,
-                          category: activeEmailDraft.category,
-                          urgency_score: activeEmailDraft.urgency_score,
-                          draft: {
-                            draft_id: activeEmailDraft.draft_id,
-                            draft_body: activeEmailDraft.draft_body,
-                            is_generating: false,
-                            created_at: activeEmailDraft.created_at
-                          }
-                        }
-                      ]
-                    : []
+                      ? [
+                          {
+                            id: activeEmailDraft.original_message_id,
+                            account: activeEmailDraft.account,
+                            account_address: activeEmailDraft.account_address,
+                            subject: activeEmailDraft.subject,
+                            from_name: activeEmailDraft.recipient_name,
+                            from_address: activeEmailDraft.recipient_email,
+                            reply_to_address: activeEmailDraft.recipient_email,
+                            received_at: activeEmailDraft.created_at,
+                            body_snippet: activeEmailDraft.original_snippet,
+                            body_text: activeEmailDraft.original_snippet,
+                            category: activeEmailDraft.category,
+                            urgency_score: activeEmailDraft.urgency_score,
+                            draft: {
+                              draft_id: activeEmailDraft.draft_id,
+                              draft_body: activeEmailDraft.draft_body,
+                              is_generating: false,
+                              created_at: activeEmailDraft.created_at,
+                            },
+                          },
+                        ]
+                      : []
                 }
                 activeDraft={activeEmailDraft}
                 onGenerateDraft={handleGenerateEmailDraft}
@@ -375,6 +453,10 @@ export const App: React.FC = () => {
             {/* Tasks Panel */}
             <TasksPanel
               tasks={tasks}
+              onOpenCreateModal={() => setIsTaskModalOpen(true)}
+              onToggleTask={handleToggleTask}
+              onDeleteTask={handleDeleteTask}
+              onRunTaskNow={handleRunTaskNow}
             />
           </>
         ) : (
@@ -382,7 +464,7 @@ export const App: React.FC = () => {
           <SettingsView
             settings={settings}
             onSaveSettings={handleSaveSettings}
-            onClose={() => setActiveTab('home')}
+            onClose={() => setActiveTab("home")}
           />
         )}
       </main>

@@ -1,7 +1,7 @@
 import json
-from typing import Any, Dict, List
-from fastapi import WebSocket
+from typing import Any
 
+from fastapi import WebSocket
 from logger import get_logger
 
 logger = get_logger("reasoning_engine.connection_manager")
@@ -16,7 +16,7 @@ class WebSocketConnectionManager:
     """
 
     def __init__(self) -> None:
-        self.active_connections: List[WebSocket] = []
+        self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket) -> None:
         """
@@ -27,7 +27,10 @@ class WebSocketConnectionManager:
         """
         await websocket.accept()
         self.active_connections.append(websocket)
-        logger.info("WebSocket client connected. Active sessions: %d", len(self.active_connections))
+        logger.info(
+            "WebSocket client connected. Active sessions: %d",
+            len(self.active_connections),
+        )
 
     def disconnect(self, websocket: WebSocket) -> None:
         """
@@ -38,9 +41,14 @@ class WebSocketConnectionManager:
         """
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
-            logger.info("WebSocket client disconnected. Active sessions: %d", len(self.active_connections))
+            logger.info(
+                "WebSocket client disconnected. Active sessions: %d",
+                len(self.active_connections),
+            )
 
-    async def send_personal(self, message: Dict[str, Any], websocket: WebSocket) -> bool:
+    async def send_personal(
+        self, message: dict[str, Any], websocket: WebSocket
+    ) -> bool:
         """
         Serialize and dispatch a JSON payload to a specific client.
 
@@ -52,7 +60,10 @@ class WebSocketConnectionManager:
             bool: True if sent successfully, False otherwise.
         """
         try:
-            if hasattr(websocket, "client_state") and websocket.client_state.name != "CONNECTED":
+            if (
+                hasattr(websocket, "client_state")
+                and websocket.client_state.name != "CONNECTED"
+            ):
                 self.disconnect(websocket)
                 return False
             await websocket.send_text(json.dumps(message))
@@ -61,7 +72,7 @@ class WebSocketConnectionManager:
             self.disconnect(websocket)
             return False
 
-    async def broadcast(self, message: Dict[str, Any]) -> None:
+    async def broadcast(self, message: dict[str, Any]) -> None:
         """
         Broadcast a serialized JSON payload to all active clients, automatically
         pruning dead or broken connections encountered during transmission.
@@ -70,7 +81,7 @@ class WebSocketConnectionManager:
             message: Dictionary payload to broadcast.
         """
         payload_text = json.dumps(message)
-        dead_connections: List[WebSocket] = []
+        dead_connections: list[WebSocket] = []
 
         for connection in list(self.active_connections):
             try:
@@ -82,7 +93,7 @@ class WebSocketConnectionManager:
             self.disconnect(dead_conn)
 
     async def send_or_broadcast(
-        self, message: Dict[str, Any], websocket: WebSocket | None = None
+        self, message: dict[str, Any], websocket: WebSocket | None = None
     ) -> None:
         """
         Attempt to send to the specific client session. If disconnected or failed,

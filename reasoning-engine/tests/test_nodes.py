@@ -1,36 +1,37 @@
 """
 Unit tests for the modular graph nodes, routing logic, models, and prompts.
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from agent.hitl import generate_confirmation_context
+from agent.memory.models import MemoryCategory, MemoryItem
 from agent.models import (
     AgentState,
     ConfirmationRequestPayload,
     ConfirmationResponsePayload,
-    EventType,
+    EventEnvelope,
     EventMetadata,
+    EventType,
     ToolExecutionRequestPayload,
     ToolExecutionResponsePayload,
-    EventEnvelope,
 )
-from agent.prompts import (
-    JARVIS_SYSTEM_PROMPT,
-    ROUTER_PROMPT,
-    COMMAND_PROMPT,
-    SUMMARIZE_PROMPT,
-    EXTRACTION_PROMPT,
-)
-from agent.utils import extract_last_human_text, is_simple_greeting_or_trivial
-from agent.nodes.router import RouterNode
+from agent.nodes.action import ActionNode
 from agent.nodes.chat import ChatNode
 from agent.nodes.command import CommandNode
-from agent.nodes.action import ActionNode
-from agent.nodes.summarize import SummarizeNode
+from agent.nodes.router import RouterNode
 from agent.nodes.routing import route_intent, should_use_tools
-from agent.memory.models import MemoryItem, MemoryCategory
-from agent.hitl import generate_confirmation_context
+from agent.nodes.summarize import SummarizeNode
+from agent.prompts import (
+    COMMAND_PROMPT,
+    EXTRACTION_PROMPT,
+    JARVIS_SYSTEM_PROMPT,
+    ROUTER_PROMPT,
+    SUMMARIZE_PROMPT,
+)
+from agent.utils import extract_last_human_text, is_simple_greeting_or_trivial
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from services.confirmation_manager import ConfirmationManager
 
 
@@ -59,11 +60,15 @@ def test_models_schema():
         eventType=EventType.EXECUTION_REQUEST,
     )
     req_payload = ToolExecutionRequestPayload(toolName="test_tool", arguments={"x": 1})
-    envelope = EventEnvelope(metadata=metadata, payload=req_payload.model_dump(by_alias=True))
+    envelope = EventEnvelope(
+        metadata=metadata, payload=req_payload.model_dump(by_alias=True)
+    )
     assert envelope.metadata.event_id == "ev-1"
     assert envelope.payload["toolName"] == "test_tool"
 
-    res_payload = ToolExecutionResponsePayload(toolName="test_tool", status="SUCCESS", output="done")
+    res_payload = ToolExecutionResponsePayload(
+        toolName="test_tool", status="SUCCESS", output="done"
+    )
     assert res_payload.status == "SUCCESS"
 
     conf_req = ConfirmationRequestPayload(
@@ -94,9 +99,7 @@ def test_models_schema():
 
 
 from agent.utils import (
-    extract_last_human_text,
     format_recent_history,
-    is_simple_greeting_or_trivial,
 )
 
 
@@ -174,7 +177,9 @@ async def test_router_node():
     state_followup: AgentState = {
         "messages": [
             HumanMessage(content="Buenas, cuales son mis correos sin leer"),
-            AIMessage(content="Para consultar tus correos sin leer, ¿de qué cuenta quieres verlos o prefieres todas?"),
+            AIMessage(
+                content="Para consultar tus correos sin leer, ¿de qué cuenta quieres verlos o prefieres todas?"
+            ),
             HumanMessage(content="TODAS"),
         ]
     }
@@ -225,9 +230,7 @@ async def test_chat_node():
         memory_manager=memory_manager_mock,
     )
 
-    state: AgentState = {
-        "messages": [HumanMessage(content="Hello Jarvis")]
-    }
+    state: AgentState = {"messages": [HumanMessage(content="Hello Jarvis")]}
     result = await chat(state)
 
     assert len(result["messages"]) == 1
@@ -241,8 +244,7 @@ async def test_command_node_with_tools():
     llm_mock = MagicMock()
     bound_llm_mock = AsyncMock()
     tool_call_resp = AIMessage(
-        content="",
-        tool_calls=[{"name": "system_stats", "args": {}, "id": "call-1"}]
+        content="", tool_calls=[{"name": "system_stats", "args": {}, "id": "call-1"}]
     )
     bound_llm_mock.ainvoke.return_value = tool_call_resp
     llm_mock.bind_tools.return_value = bound_llm_mock
@@ -282,7 +284,7 @@ async def test_command_node_fallback_markdown_json():
     # LLM returns plain text with markdown JSON and empty tool_calls
     simulated_resp = AIMessage(
         content='Vamos a consultar los correos...\n\n```json\n{"name": "consultar_correos_no_leidos", "arguments": {"cuenta": "TODAS"}}\n```\nObteniendo correos...',
-        tool_calls=[]
+        tool_calls=[],
     )
     bound_llm_mock.ainvoke.return_value = simulated_resp
     llm_mock.bind_tools.return_value = bound_llm_mock
@@ -306,7 +308,9 @@ async def test_command_node_fallback_markdown_json():
         tools=tools,
     )
 
-    state: AgentState = {"messages": [HumanMessage(content="Consulta mis correos recientes")]}
+    state: AgentState = {
+        "messages": [HumanMessage(content="Consulta mis correos recientes")]
+    }
     result = await command(state)
 
     assert len(result["messages"]) == 1
@@ -323,7 +327,7 @@ async def test_command_node_fallback_python_tool_call():
     bound_llm_mock = AsyncMock()
     simulated_resp = AIMessage(
         content="Consultando tus correos no leídos...\n\n```python\ntool_call(get_recent_unread_emails, account='TODAS')\n```\nAccediendo...",
-        tool_calls=[]
+        tool_calls=[],
     )
     bound_llm_mock.ainvoke.return_value = simulated_resp
     llm_mock.bind_tools.return_value = bound_llm_mock
@@ -347,7 +351,9 @@ async def test_command_node_fallback_python_tool_call():
         tools=tools,
     )
 
-    state: AgentState = {"messages": [HumanMessage(content="lee mis correos no leidos")]}
+    state: AgentState = {
+        "messages": [HumanMessage(content="lee mis correos no leidos")]
+    }
     result = await command(state)
 
     assert len(result["messages"]) == 1
@@ -363,8 +369,7 @@ async def test_command_node_fallback_triple_quote_python():
     llm_mock = MagicMock()
     bound_llm_mock = AsyncMock()
     simulated_resp = AIMessage(
-        content="''' python tool_call(get_recent_unread_emails)'''",
-        tool_calls=[]
+        content="''' python tool_call(get_recent_unread_emails)'''", tool_calls=[]
     )
     bound_llm_mock.ainvoke.return_value = simulated_resp
     llm_mock.bind_tools.return_value = bound_llm_mock
@@ -430,9 +435,13 @@ async def test_action_node():
 async def test_action_node_critical_tool_approved():
     """Tests ActionNode requesting confirmation for a critical tool and executing upon approval."""
     import asyncio
+
     mq_mock = AsyncMock()
     mq_mock.send_and_wait.return_value = {
-        "payload": {"status": "SUCCESS", "output": "Proceso 'notepad.exe' cerrado exitosamente."}
+        "payload": {
+            "status": "SUCCESS",
+            "output": "Proceso 'notepad.exe' cerrado exitosamente.",
+        }
     }
     ws_mock = AsyncMock()
     confirmation_manager = ConfirmationManager()
@@ -447,7 +456,13 @@ async def test_action_node_critical_tool_approved():
         "messages": [
             AIMessage(
                 content="",
-                tool_calls=[{"name": "matar_proceso", "args": {"nombre_proceso": "notepad.exe"}, "id": "tc-kill-1"}],
+                tool_calls=[
+                    {
+                        "name": "matar_proceso",
+                        "args": {"nombre_proceso": "notepad.exe"},
+                        "id": "tc-kill-1",
+                    }
+                ],
             )
         ]
     }
@@ -475,6 +490,7 @@ async def test_action_node_critical_tool_approved():
 async def test_action_node_critical_tool_rejected():
     """Tests ActionNode safely aborting execution and skipping RabbitMQ when user rejects confirmation."""
     import asyncio
+
     mq_mock = AsyncMock()
     ws_mock = AsyncMock()
     confirmation_manager = ConfirmationManager()
@@ -489,7 +505,13 @@ async def test_action_node_critical_tool_rejected():
         "messages": [
             AIMessage(
                 content="",
-                tool_calls=[{"name": "matar_proceso", "args": {"nombre_proceso": "notepad.exe"}, "id": "tc-kill-2"}],
+                tool_calls=[
+                    {
+                        "name": "matar_proceso",
+                        "args": {"nombre_proceso": "notepad.exe"},
+                        "id": "tc-kill-2",
+                    }
+                ],
             )
         ]
     }
@@ -607,7 +629,9 @@ async def test_action_node_validation_and_null_safety():
     assert await action({"messages": []}) == {"messages": []}
 
     # Non-AIMessage raises TypeError
-    with pytest.raises(TypeError, match="Expected last message in state to be an AIMessage"):
+    with pytest.raises(
+        TypeError, match="Expected last message in state to be an AIMessage"
+    ):
         await action({"messages": [HumanMessage(content="run command")]})
 
     # Null response from RPC returns error tool message without crashing
@@ -628,7 +652,12 @@ async def test_action_node_validation_and_null_safety():
 def test_utils_multipart_dict_content():
     """Verifies extract_last_human_text supports multipart list containing dict blocks."""
     msgs = [
-        HumanMessage(content=[{"type": "text", "text": "hello"}, {"type": "text", "text": "world"}])
+        HumanMessage(
+            content=[
+                {"type": "text", "text": "hello"},
+                {"type": "text", "text": "world"},
+            ]
+        )
     ]
     assert extract_last_human_text(msgs) == "hello world"
 
@@ -663,7 +692,7 @@ def test_agent_graph_factory():
 @pytest.mark.asyncio
 async def test_agent_runtime_factory_and_lifecycle(tmp_path):
     """Verifies create_agent_runtime builds an isolated container and handles lifecycle without errors."""
-    from agent.agent import create_agent_runtime, AgentRuntime
+    from agent.agent import AgentRuntime, create_agent_runtime
 
     mq_mock = AsyncMock()
     llm_mock = AsyncMock()
@@ -679,7 +708,9 @@ async def test_agent_runtime_factory_and_lifecycle(tmp_path):
 
     assert isinstance(runtime, AgentRuntime)
     assert runtime.graph is not None
-    assert runtime.dynamic_tools == []
+    assert any(
+        t["function"]["name"] == "programar_tarea" for t in runtime.dynamic_tools
+    )
 
     # Mock vector store and memory manager to isolate lifecycle test
     runtime.vector_store.initialize = AsyncMock()
@@ -692,5 +723,3 @@ async def test_agent_runtime_factory_and_lifecycle(tmp_path):
     await runtime.close()
     assert mq_mock.close.called
     assert runtime.memory_manager.flush_and_close.called
-
-

@@ -1,8 +1,8 @@
 """
 Confirmation manager service for Human-in-the-Loop (HITL) tool execution.
 """
+
 import asyncio
-from typing import Dict, Optional
 
 from logger import get_logger
 
@@ -16,7 +16,7 @@ class ConfirmationManager:
     """
 
     def __init__(self) -> None:
-        self._pending_confirmations: Dict[str, asyncio.Future[bool]] = {}
+        self._pending_confirmations: dict[str, asyncio.Future[bool]] = {}
 
     def create_confirmation(self, confirmation_id: str) -> asyncio.Future[bool]:
         """
@@ -87,7 +87,7 @@ class ConfirmationManager:
                 future.set_result(False)
         self._pending_confirmations.clear()
 
-    def remove(self, confirmation_id: str) -> Optional[asyncio.Future[bool]]:
+    def remove(self, confirmation_id: str) -> asyncio.Future[bool] | None:
         """Remove a confirmation from tracking without modifying its state."""
         return self._pending_confirmations.pop(confirmation_id, None)
 

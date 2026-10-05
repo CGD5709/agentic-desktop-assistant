@@ -14,10 +14,13 @@ class AudioFeedbackService {
     if (!this.enabled) return null;
     try {
       if (!this.audioCtx) {
-        const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const AudioContextClass =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext;
         this.audioCtx = new AudioContextClass();
       }
-      if (this.audioCtx.state === 'suspended') {
+      if (this.audioCtx.state === "suspended") {
         this.audioCtx.resume().catch(() => {});
       }
       return this.audioCtx;
@@ -38,7 +41,7 @@ class AudioFeedbackService {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
-      osc.type = 'sine';
+      osc.type = "sine";
       osc.frequency.setValueAtTime(480, now);
       osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
 
@@ -67,7 +70,7 @@ class AudioFeedbackService {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
-      osc.type = 'sine';
+      osc.type = "sine";
       osc.frequency.setValueAtTime(880, now);
       osc.frequency.exponentialRampToValueAtTime(440, now + 0.09);
 
@@ -96,7 +99,7 @@ class AudioFeedbackService {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
-      osc.type = 'triangle';
+      osc.type = "triangle";
       osc.frequency.setValueAtTime(520, now);
       osc.frequency.setValueAtTime(660, now + 0.06);
       osc.frequency.setValueAtTime(990, now + 0.12);
@@ -126,7 +129,7 @@ class AudioFeedbackService {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
-      osc.type = 'sine';
+      osc.type = "sine";
       osc.frequency.setValueAtTime(320, now);
       osc.frequency.exponentialRampToValueAtTime(200, now + 0.08);
 

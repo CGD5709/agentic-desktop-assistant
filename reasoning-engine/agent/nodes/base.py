@@ -1,8 +1,11 @@
 """
 Base node abstractions, shared dependencies, and graph enumeration constants.
 """
+
+from collections.abc import Sequence
 from enum import Enum
-from typing import Any, Dict, Final, List, Optional, Sequence
+from typing import Any, Final
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 
@@ -19,6 +22,7 @@ DEFAULT_MAX_DIALOGUE_TOKENS: Final[int] = 3000
 
 class NodeName(str, Enum):
     """Canonical identifier names for graph nodes and terminal states."""
+
     ROUTER = "router_node"
     CHAT = "chat_node"
     COMMAND = "command_node"
@@ -29,6 +33,7 @@ class NodeName(str, Enum):
 
 class Intent(str, Enum):
     """Categorical classification of user intent."""
+
     CHAT = "CHAT"
     COMMAND = "COMMAND"
 
@@ -71,9 +76,9 @@ class BaseAgentNode:
 
     async def _assemble_context(
         self,
-        messages: List[BaseMessage],
-        retrieved_memories: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[BaseMessage]:
+        messages: list[BaseMessage],
+        retrieved_memories: list[dict[str, Any]] | None = None,
+    ) -> list[BaseMessage]:
         """
         Fetch profile and session memory layers, then assemble the 4-tier conversational context.
 
@@ -119,7 +124,7 @@ class BaseAgentNode:
 
 __all__ = [
     "DEFAULT_MAX_DIALOGUE_TOKENS",
-    "NodeName",
-    "Intent",
     "BaseAgentNode",
+    "Intent",
+    "NodeName",
 ]

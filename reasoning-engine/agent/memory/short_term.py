@@ -1,13 +1,19 @@
 import json
-from typing import List, Optional, Sequence, Any
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
+from collections.abc import Sequence
 
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 MESSAGE_OVERHEAD_TOKENS = 4
 FALLBACK_CHARS_PER_TOKEN = 4
 
 try:
     import tiktoken
+
     _enc = tiktoken.get_encoding("cl100k_base")
 
     def count_tokens(text: str) -> int:
@@ -15,6 +21,7 @@ try:
             return 0
         return len(_enc.encode(str(text)))
 except ImportError:
+
     def count_tokens(text: str) -> int:
         if not text:
             return 0
@@ -27,7 +34,7 @@ def count_message_tokens(msg: BaseMessage) -> int:
     Accounts for content length, nested tool calls, and ChatML formatting overhead.
     """
     tokens = MESSAGE_OVERHEAD_TOKENS
-    
+
     if isinstance(msg.content, str):
         tokens += count_tokens(msg.content)
     elif isinstance(msg.content, list):
@@ -57,28 +64,30 @@ def count_total_tokens(messages: Sequence[BaseMessage]) -> int:
     return sum(count_message_tokens(m) for m in messages)
 
 
-def group_atomic_message_blocks(messages: Sequence[BaseMessage]) -> List[List[BaseMessage]]:
+def group_atomic_message_blocks(
+    messages: Sequence[BaseMessage],
+) -> list[list[BaseMessage]]:
     """
     Groups messages into indivisible atomic blocks to maintain structural integrity.
     Ensures that an AIMessage containing tool_calls and its subsequent ToolMessages
     are treated as a single cohesive unit during context pruning.
     """
-    blocks: List[List[BaseMessage]] = []
+    blocks: list[list[BaseMessage]] = []
     i = 0
     n = len(messages)
 
     while i < n:
         msg = messages[i]
-        
+
         # Identify an AI tool invocation and group it with its responses
         if isinstance(msg, AIMessage) and msg.tool_calls:
-            block: List[BaseMessage] = [msg]
+            block: list[BaseMessage] = [msg]
             tool_call_ids = set()
             for tc in msg.tool_calls:
                 if isinstance(tc, dict) and tc.get("id"):
                     tool_call_ids.add(tc["id"])
                 elif hasattr(tc, "id") and getattr(tc, "id", None):
-                    tool_call_ids.add(getattr(tc, "id"))
+                    tool_call_ids.add(tc.id)
 
             j = i + 1
             while j < n:
@@ -88,7 +97,9 @@ def group_atomic_message_blocks(messages: Sequence[BaseMessage]) -> List[List[Ba
 
                 # Match tool responses by ID and append consecutively
                 tool_call_id = getattr(next_msg, "tool_call_id", None)
-                if not tool_call_ids or (tool_call_id and tool_call_id in tool_call_ids):
+                if not tool_call_ids or (
+                    tool_call_id and tool_call_id in tool_call_ids
+                ):
                     block.append(next_msg)
                     j += 1
                 else:
@@ -105,8 +116,8 @@ def group_atomic_message_blocks(messages: Sequence[BaseMessage]) -> List[List[Ba
 def trim_messages_token_budget(
     messages: Sequence[BaseMessage],
     max_tokens: int = 3000,
-    keep_system_messages: bool = False
-) -> List[BaseMessage]:
+    keep_system_messages: bool = False,
+) -> list[BaseMessage]:
     """
     Level 1 Memory: Short-Term Working Memory.
     Truncates the conversation history strictly adhering to a token budget limit.
@@ -116,8 +127,8 @@ def trim_messages_token_budget(
         return []
 
     # Isolate system instructions if they need to be preserved
-    system_msgs: List[BaseMessage] = []
-    dialogue_msgs: List[BaseMessage] = []
+    system_msgs: list[BaseMessage] = []
+    dialogue_msgs: list[BaseMessage] = []
 
     for msg in messages:
         if isinstance(msg, SystemMessage):
@@ -131,8 +142,8 @@ def trim_messages_token_budget(
 
     # Segment dialogue into unbreakable constraints
     blocks = group_atomic_message_blocks(dialogue_msgs)
-    
-    selected_blocks: List[List[BaseMessage]] = []
+
+    selected_blocks: list[list[BaseMessage]] = []
     accumulated_tokens = 0
 
     # Traverse LIFO (Last-In, First-Out) to prioritize recent context
@@ -151,19 +162,21 @@ def trim_messages_token_budget(
     selected_blocks.reverse()
 
     # Flatten the list of blocks using a list comprehension
-    flattened: List[BaseMessage] = [msg for block in selected_blocks for msg in block]
+    flattened: list[BaseMessage] = [msg for block in selected_blocks for msg in block]
 
     # Strict relational cleanup: Purge orphaned ToolMessages
-    cleaned: List[BaseMessage] = []
+    cleaned: list[BaseMessage] = []
     for msg in flattened:
         if isinstance(msg, ToolMessage):
             if not cleaned:
                 continue  # Discard if it's the very first message with no parent
-            
+
             prev_msg = cleaned[-1]
-            is_valid_parent = isinstance(prev_msg, AIMessage) and getattr(prev_msg, "tool_calls", None)
+            is_valid_parent = isinstance(prev_msg, AIMessage) and getattr(
+                prev_msg, "tool_calls", None
+            )
             is_consecutive_tool = isinstance(prev_msg, ToolMessage)
-            
+
             if is_valid_parent or is_consecutive_tool:
                 cleaned.append(msg)
         else:
@@ -171,7 +184,7 @@ def trim_messages_token_budget(
 
     if keep_system_messages and system_msgs:
         return system_msgs + cleaned
-    
+
     return cleaned
 
 
@@ -189,7 +202,7 @@ class SessionSummarizer:
     # discarded dialogue into self.summary.
 
     def __init__(self) -> None:
-        self.summary: Optional[str] = None
+        self.summary: str | None = None
 
     def update_summary(self, new_summary: str) -> None:
         """Updates the internal summary state if the provided text is valid."""

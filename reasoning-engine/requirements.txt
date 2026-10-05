@@ -10,6 +10,7 @@ attrs==26.1.0
 certifi==2026.7.22
 charset-normalizer==3.5.1
 chromadb==1.5.9
+croniter==6.0.0
 distro==1.9.0
 fastapi==0.141.1
 frozenlist==1.8.0
@@ -47,6 +48,7 @@ pydantic_core==2.46.4
 pytest==9.1.1
 pytest-asyncio==1.4.0
 python-dotenv==1.2.3
+pytz==2026.4
 PyYAML==6.0.3
 requests==2.34.2
 requests-toolbelt==1.0.0

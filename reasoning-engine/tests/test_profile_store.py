@@ -1,6 +1,4 @@
-import os
 import pytest
-import asyncio
 from agent.memory.profile_store import ProfileStore
 
 
@@ -16,7 +14,9 @@ async def test_profile_store_crud(tmp_path):
     assert val == "Josevi"
 
     # Set and Get structured
-    await store.set("preferencias_editor", {"theme": "dark", "tab_size": 4}, category="technical")
+    await store.set(
+        "preferencias_editor", {"theme": "dark", "tab_size": 4}, category="technical"
+    )
     val_dict = await store.get("preferencias_editor")
     assert isinstance(val_dict, dict)
     assert val_dict["theme"] == "dark"

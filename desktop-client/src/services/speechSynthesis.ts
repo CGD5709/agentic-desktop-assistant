@@ -20,7 +20,7 @@ class SpeechSynthesisService {
   private isSpeakingActive: boolean = false;
 
   constructor() {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
       this.synth = window.speechSynthesis;
       this.loadVoices();
       if (this.synth.onvoiceschanged !== undefined) {
@@ -51,7 +51,7 @@ class SpeechSynthesisService {
 
   public getSpanishVoices(): SpeechSynthesisVoice[] {
     const all = this.getVoices();
-    return all.filter(v => v.lang.startsWith('es'));
+    return all.filter((v) => v.lang.startsWith("es"));
   }
 
   public speak(text: string, options: SpeakOptions = {}): void {
@@ -69,12 +69,12 @@ class SpeechSynthesisService {
     utterance.rate = options.rate ?? 1.05;
     utterance.pitch = options.pitch ?? 1.0;
     utterance.volume = options.volume ?? 1.0;
-    utterance.lang = options.lang ?? 'es-ES';
+    utterance.lang = options.lang ?? "es-ES";
 
     // Find requested voice
     const voices = this.getVoices();
     if (options.voiceURI) {
-      const selected = voices.find(v => v.voiceURI === options.voiceURI);
+      const selected = voices.find((v) => v.voiceURI === options.voiceURI);
       if (selected) {
         utterance.voice = selected;
       }
@@ -82,7 +82,14 @@ class SpeechSynthesisService {
 
     // If no specific voice matched, prefer a natural Spanish voice
     if (!utterance.voice) {
-      const defaultEs = voices.find(v => v.lang.includes('es') && (v.name.includes('Natural') || v.name.includes('Online') || v.name.includes('Google') || v.name.includes('Microsoft')));
+      const defaultEs = voices.find(
+        (v) =>
+          v.lang.includes("es") &&
+          (v.name.includes("Natural") ||
+            v.name.includes("Online") ||
+            v.name.includes("Google") ||
+            v.name.includes("Microsoft")),
+      );
       if (defaultEs) {
         utterance.voice = defaultEs;
       }
@@ -101,8 +108,8 @@ class SpeechSynthesisService {
     utterance.onerror = (e) => {
       this.isSpeakingActive = false;
       // 'interrupted' is expected when cancelSpeech is triggered
-      if (e.error !== 'interrupted' && e.error !== 'canceled') {
-        console.warn('[SpeechSynthesis] Utterance error:', e);
+      if (e.error !== "interrupted" && e.error !== "canceled") {
+        console.warn("[SpeechSynthesis] Utterance error:", e);
         options.onError?.(e);
       } else {
         options.onEnd?.();
@@ -112,7 +119,7 @@ class SpeechSynthesisService {
     try {
       this.synth.speak(utterance);
     } catch (err) {
-      console.warn('[SpeechSynthesis] Failed to trigger speech:', err);
+      console.warn("[SpeechSynthesis] Failed to trigger speech:", err);
       this.isSpeakingActive = false;
       options.onEnd?.();
     }

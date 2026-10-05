@@ -1,9 +1,9 @@
-import pytest
 from unittest.mock import AsyncMock
-from langchain_core.messages import AIMessage
 
+import pytest
 from agent.email_models import EmailCategory, RawEmailDTO
 from agent.email_service import EmailAssistantService
+from langchain_core.messages import AIMessage
 
 
 def test_parse_emails_from_tool_output():
@@ -70,11 +70,12 @@ async def test_classify_email_five_categories():
         fromName="Dra. Martínez",
         fromAddress="martinez@universidad.es",
         replyToAddress="martinez@universidad.es",
-        bodyText="La revisión será este jueves a las 11:00 en el despacho 302."
+        bodyText="La revisión será este jueves a las 11:00 en el despacho 302.",
     )
 
-    # Simular respuesta LLM para categoría UNIVERSITY
-    mock_llm.ainvoke.return_value = AIMessage(content="""
+    # Simulate LLM response for UNIVERSITY category
+    mock_llm.ainvoke.return_value = AIMessage(
+        content="""
     {
       "category": "UNIVERSITY",
       "urgency_score": 4,
@@ -82,15 +83,17 @@ async def test_classify_email_five_categories():
       "requires_reply": false,
       "suggested_action": "Anotar fecha en el calendario"
     }
-    """)
+    """
+    )
 
     classified = await service.classify_email(email)
     assert classified.category == EmailCategory.UNIVERSITY
     assert classified.urgency_score == 4
     assert classified.requires_reply is False
 
-    # Simular respuesta LLM para categoría URGENT
-    mock_llm.ainvoke.return_value = AIMessage(content="""
+    # Simulate LLM response for URGENT category
+    mock_llm.ainvoke.return_value = AIMessage(
+        content="""
     {
       "category": "URGENT",
       "urgency_score": 5,
@@ -98,7 +101,8 @@ async def test_classify_email_five_categories():
       "requires_reply": true,
       "suggested_action": "Reiniciar servicio"
     }
-    """)
+    """
+    )
     classified_urgent = await service.classify_email(email)
     assert classified_urgent.category == EmailCategory.URGENT
     assert classified_urgent.requires_reply is True
@@ -107,7 +111,9 @@ async def test_classify_email_five_categories():
 @pytest.mark.asyncio
 async def test_create_draft_deterministic_recipient():
     mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = AIMessage(content="Estimada Dra. Martínez,\n\nMuchas gracias por la información. Asistiré a la revisión.\n\nUn cordial saludo,\nJose")
+    mock_llm.ainvoke.return_value = AIMessage(
+        content="Estimada Dra. Martínez,\n\nMuchas gracias por la información. Asistiré a la revisión.\n\nUn cordial saludo,\nJose"
+    )
 
     service = EmailAssistantService(llm=mock_llm)
 
@@ -119,17 +125,17 @@ async def test_create_draft_deterministic_recipient():
         fromName="Dra. Martínez",
         fromAddress="martinez.noreply@universidad.es",
         replyToAddress="profesora.martinez@universidad.es",
-        bodyText="Hola Jose, ¿a qué hora puedes reunirte para ver los avances?"
+        bodyText="Hola Jose, ¿a qué hora puedes reunirte para ver los avances?",
     )
 
     draft = await service.create_draft(
         email=email,
         category=EmailCategory.UNIVERSITY,
         urgency_score=4,
-        user_instructions="Dile que puedo a las 12:00"
+        user_instructions="Dile que puedo a las 12:00",
     )
 
-    # VERIFICACIÓN CRÍTICA: Destinatario se obtiene de reply_to_address por código
+    # CRITICAL VERIFICATION: Recipient is obtained from reply_to_address
     assert draft.recipient_email == "profesora.martinez@universidad.es"
     assert draft.recipient_name == "Dra. Martínez"
     assert draft.account == "OUTLOOK"

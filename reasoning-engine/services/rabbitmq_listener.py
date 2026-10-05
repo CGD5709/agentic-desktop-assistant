@@ -1,23 +1,26 @@
 """
 RabbitMQ listener service and tool discovery payload converter.
 """
+
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from agent import AgentRuntime
 
 from logger import get_logger
+
 from services.connection_manager import WebSocketConnectionManager
 
 logger = get_logger("reasoning_engine.rabbitmq_listener")
 
 
 def convert_execution_tools_to_openai_format(
-    raw_tools: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    raw_tools: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """
     Transform raw tool definitions from execution-service into the OpenAI function schema.
 
@@ -27,17 +30,20 @@ def convert_execution_tools_to_openai_format(
     Returns:
         List of OpenAI-compliant function tool definitions ready for LLM binding.
     """
-    converted: List[Dict[str, Any]] = []
+    converted: list[dict[str, Any]] = []
     for tool in raw_tools:
         openai_tool = {
             "type": "function",
             "function": {
                 "name": tool.get("name", ""),
                 "description": tool.get("description", ""),
-                "parameters": tool.get("parameters", {"type": "object", "properties": {}}),
+                "parameters": tool.get(
+                    "parameters", {"type": "object", "properties": {}}
+                ),
             },
             "critical": bool(tool.get("critical", False)),
-            "confirmation_template": tool.get("confirmationTemplate") or tool.get("confirmation_template"),
+            "confirmation_template": tool.get("confirmationTemplate")
+            or tool.get("confirmation_template"),
         }
         converted.append(openai_tool)
     return converted
@@ -74,11 +80,15 @@ def create_rabbitmq_message_handler(
                 tool_names = [t["function"]["name"] for t in converted_tools]
                 logger.info("Tools registered from execution-service: %s", tool_names)
 
-                await ws_manager.broadcast({
-                    "type": "tools_updated",
-                    "tools": [t["function"]["name"] for t in runtime.dynamic_tools],
-                })
+                await ws_manager.broadcast(
+                    {
+                        "type": "tools_updated",
+                        "tools": [t["function"]["name"] for t in runtime.dynamic_tools],
+                    }
+                )
             except Exception as e:
-                logger.error("Error processing tool discovery payload: %s", e, exc_info=True)
+                logger.error(
+                    "Error processing tool discovery payload: %s", e, exc_info=True
+                )
 
     return handle_rabbitmq_message

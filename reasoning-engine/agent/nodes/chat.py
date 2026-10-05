@@ -1,7 +1,9 @@
 """
 Chat node responsible for conversational dialogue with 4-tier context assembly.
 """
-from typing import Any, Dict
+
+from typing import Any
+
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from ..memory.async_manager import AsyncMemoryManager
@@ -10,7 +12,7 @@ from ..memory.short_term import SessionSummarizer
 from ..memory.vector_store import VectorMemoryStore
 from ..models import AgentState
 from ..prompts import JARVIS_SYSTEM_PROMPT
-from .base import BaseAgentNode, DEFAULT_MAX_DIALOGUE_TOKENS
+from .base import DEFAULT_MAX_DIALOGUE_TOKENS, BaseAgentNode
 
 
 class ChatNode(BaseAgentNode):
@@ -51,7 +53,7 @@ class ChatNode(BaseAgentNode):
             max_dialogue_tokens=max_dialogue_tokens,
         )
 
-    async def __call__(self, state: AgentState) -> Dict[str, Any]:
+    async def __call__(self, state: AgentState) -> dict[str, Any]:
         """
         Execute conversational turn generation with assembled memory context.
 

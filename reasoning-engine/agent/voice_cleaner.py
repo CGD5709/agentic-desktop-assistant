@@ -4,6 +4,7 @@ Voice cleaner and text sanitizer module.
 Transforms formatted Markdown and technical outputs into clean, natural,
 and fluent phrasing optimized for Text-to-Speech (TTS) voice engines.
 """
+
 import re
 from typing import Final
 
@@ -24,7 +25,9 @@ HEADER_PATTERN: Final[re.Pattern[str]] = re.compile(r"^#{1,6}\s*", re.MULTILINE)
 
 # Regex matching list bullets (- *, 1.)
 BULLET_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*[-*+]\s+", re.MULTILINE)
-NUMBERED_LIST_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*\d+\.\s+", re.MULTILINE)
+NUMBERED_LIST_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^\s*\d+\.\s+", re.MULTILINE
+)
 
 # Regex matching bold/italic/strikethrough markers (**, *, ~~, __)
 STYLE_PATTERN: Final[re.Pattern[str]] = re.compile(r"[*_~]{1,3}")
@@ -58,14 +61,18 @@ def clean_text_for_speech(raw_text: str) -> str:
 
     # 1. Replace multiline code blocks with a brief spoken notice
     if CODE_BLOCK_PATTERN.search(text):
-        text = CODE_BLOCK_PATTERN.sub(". He generado el código correspondiente en pantalla. ", text)
+        text = CODE_BLOCK_PATTERN.sub(
+            ". He generado el código correspondiente en pantalla. ", text
+        )
 
     # 2. Simplify inline code
     text = INLINE_CODE_PATTERN.sub(r"\1", text)
 
     # 3. Replace markdown tables with a spoken reference notice
     if TABLE_PATTERN.search(text):
-        text = TABLE_PATTERN.sub(". Los datos detallados se muestran en la tabla en pantalla. ", text)
+        text = TABLE_PATTERN.sub(
+            ". Los datos detallados se muestran en la tabla en pantalla. ", text
+        )
 
     # 4. Extract link texts, discard URLs
     text = LINK_PATTERN.sub(r"\1", text)

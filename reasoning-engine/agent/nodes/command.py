@@ -1,8 +1,9 @@
 import ast
 import json
 import re
-from typing import Any, Dict, Final, List, Optional, Set
 import uuid
+from typing import Any, Final
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage
 
@@ -12,11 +13,10 @@ from ..memory.short_term import SessionSummarizer
 from ..memory.vector_store import VectorMemoryStore
 from ..models import AgentState
 from ..prompts import COMMAND_PROMPT
-from .base import BaseAgentNode, DEFAULT_MAX_DIALOGUE_TOKENS
-
+from .base import DEFAULT_MAX_DIALOGUE_TOKENS, BaseAgentNode
 
 # Dynamic cross-language semantic token synonyms for tool discovery matching
-KEYWORD_SYNONYMS: Final[Dict[str, str]] = {
+KEYWORD_SYNONYMS: Final[dict[str, str]] = {
     "email": "correo",
     "emails": "correos",
     "mail": "correo",
@@ -45,12 +45,30 @@ KEYWORD_SYNONYMS: Final[Dict[str, str]] = {
     "cpu": "rendimiento",
     "ram": "rendimiento",
     "stats": "rendimiento",
+    "tarea": "tarea",
+    "tareas": "tareas",
+    "task": "tarea",
+    "tasks": "tareas",
+    "programar": "programar",
+    "schedule": "programar",
+    "recordar": "programar",
+    "recordatorio": "programar",
+    "remind": "programar",
+    "reminder": "programar",
+    "agenda": "programar",
+    "cron": "programar",
+    "listar": "listar",
+    "list": "listar",
+    "cancelar": "cancelar",
+    "cancel": "cancelar",
+    "pausar": "pausar",
+    "pause": "pausar",
 }
 
-ARG_SYNONYMS: Final[Dict[str, List[str]]] = {
+ARG_SYNONYMS: Final[dict[str, list[str]]] = {
     "account": ["cuenta", "account"],
     "limit": ["limite", "limite_procesos", "limit"],
-    "name": ["nombre_proceso", "nombre", "name"],
+    "name": ["nombre_proceso", "nombre", "name", "titulo", "title"],
     "process_name": ["nombre_proceso", "process_name"],
     "pid": ["pid", "process_id"],
     "url": ["url", "link", "direccion"],
@@ -58,12 +76,27 @@ ARG_SYNONYMS: Final[Dict[str, List[str]]] = {
     "to": ["destinatario", "recipient", "to"],
     "recipient": ["destinatario", "recipient"],
     "subject": ["asunto", "subject"],
+    "herramienta": ["herramienta", "tool", "tool_name"],
+    "argumentos": ["argumentos", "args", "arguments", "parameters"],
+    "tipo_disparo": ["tipo_disparo", "trigger_type", "type"],
+    "fecha_hora": ["fecha_hora", "datetime", "time", "date", "run_at"],
+    "expresion_cron": ["expresion_cron", "cron", "cron_expr"],
+    "identificador_o_nombre": [
+        "identificador_o_nombre",
+        "id",
+        "task_id",
+        "identificador",
+        "nombre",
+        "name",
+    ],
     "body": ["cuerpo", "body", "message", "mensaje", "content"],
     "action": ["accion", "action"],
 }
 
 
-def resolve_tool_definition(call_name: str, available_tools: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def resolve_tool_definition(
+    call_name: str, available_tools: list[dict[str, Any]]
+) -> dict[str, Any] | None:
     """
     Dynamically resolves a tool invocation name to a registered tool definition
     received from the execution-service discovery manifest.
@@ -104,7 +137,9 @@ def resolve_tool_definition(call_name: str, available_tools: List[Dict[str, Any]
         name_tokens = set(re.split(r"[_\s]+", name.lower()))
         desc_tokens = set(re.split(r"[_\s,.]+", desc))
 
-        score = len(expanded_tokens & name_tokens) * 3 + len(expanded_tokens & desc_tokens)
+        score = len(expanded_tokens & name_tokens) * 3 + len(
+            expanded_tokens & desc_tokens
+        )
         if score > best_score and score >= 2:
             best_score = score
             best_tool = tool
@@ -112,7 +147,9 @@ def resolve_tool_definition(call_name: str, available_tools: List[Dict[str, Any]
     return best_tool
 
 
-def normalize_tool_args(tool_schema: Optional[Dict[str, Any]], raw_args: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_tool_args(
+    tool_schema: dict[str, Any] | None, raw_args: dict[str, Any]
+) -> dict[str, Any]:
     """
     Dynamically normalizes raw arguments against the tool's JSON Schema property definitions.
 
@@ -130,7 +167,7 @@ def normalize_tool_args(tool_schema: Optional[Dict[str, Any]], raw_args: Dict[st
     params = fn.get("parameters", {}) if isinstance(fn, dict) else {}
     props = params.get("properties", {}) if isinstance(params, dict) else {}
 
-    normalized: Dict[str, Any] = {}
+    normalized: dict[str, Any] = {}
 
     for raw_k, raw_v in raw_args.items():
         k_lower = str(raw_k).lower()
@@ -141,7 +178,7 @@ def normalize_tool_args(tool_schema: Optional[Dict[str, Any]], raw_args: Dict[st
             matched_prop = k_lower
         else:
             # 2. Check cross-language synonyms
-            for _, syn_list in ARG_SYNONYMS.items():
+            for syn_list in ARG_SYNONYMS.values():
                 if k_lower in syn_list:
                     if props:
                         for target_prop in syn_list:
@@ -160,7 +197,9 @@ def normalize_tool_args(tool_schema: Optional[Dict[str, Any]], raw_args: Dict[st
     return normalized
 
 
-def _extract_python_call_ast(expr_str: str, available_tools: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _extract_python_call_ast(
+    expr_str: str, available_tools: list[dict[str, Any]]
+) -> dict[str, Any] | None:
     """
     Safely parse a Python expression like tool_call(func, arg='value') or func(arg='value')
     using Python's AST parser and resolve it dynamically against registered tools.
@@ -171,7 +210,7 @@ def _extract_python_call_ast(expr_str: str, available_tools: List[Dict[str, Any]
             return None
         call = parsed.body
         func_name = ""
-        args_dict: Dict[str, Any] = {}
+        args_dict: dict[str, Any] = {}
 
         if isinstance(call.func, ast.Name):
             if call.func.id == "tool_call":
@@ -179,7 +218,9 @@ def _extract_python_call_ast(expr_str: str, available_tools: List[Dict[str, Any]
                     first_arg = call.args[0]
                     if isinstance(first_arg, ast.Name):
                         func_name = first_arg.id
-                    elif isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                    elif isinstance(first_arg, ast.Constant) and isinstance(
+                        first_arg.value, str
+                    ):
                         func_name = first_arg.value
                 if len(call.args) > 1 and isinstance(call.args[1], ast.Dict):
                     for k, v in zip(call.args[1].keys, call.args[1].values):
@@ -197,8 +238,14 @@ def _extract_python_call_ast(expr_str: str, available_tools: List[Dict[str, Any]
         if not matched_tool:
             return None
 
-        fn_meta = matched_tool.get("function", {}) if isinstance(matched_tool, dict) else {}
-        canonical_name = fn_meta.get("name", func_name) if isinstance(fn_meta, dict) else matched_tool.get("name", func_name)
+        fn_meta = (
+            matched_tool.get("function", {}) if isinstance(matched_tool, dict) else {}
+        )
+        canonical_name = (
+            fn_meta.get("name", func_name)
+            if isinstance(fn_meta, dict)
+            else matched_tool.get("name", func_name)
+        )
 
         # Extract keyword arguments
         for kw in call.keywords:
@@ -221,8 +268,8 @@ def _extract_python_call_ast(expr_str: str, available_tools: List[Dict[str, Any]
 
 def extract_fallback_tool_calls(
     response: AIMessage,
-    available_tools: List[Dict[str, Any]],
-) -> Optional[List[Dict[str, Any]]]:
+    available_tools: list[dict[str, Any]],
+) -> list[dict[str, Any]] | None:
     """
     Inspect an AIMessage that lacks structured tool_calls.
     Extract simulated tool calls from XML tags (<tool_call>), Markdown JSON, Python code blocks,
@@ -242,10 +289,12 @@ def extract_fallback_tool_calls(
         return None
 
     content = response.content.strip()
-    found_tool_calls: List[Dict[str, Any]] = []
+    found_tool_calls: list[dict[str, Any]] = []
 
     # Strategy 1: XML tags <tool_call> ... </tool_call>
-    xml_matches = re.findall(r"<tool_call>\s*([\s\S]*?)\s*</tool_call>", content, re.IGNORECASE)
+    xml_matches = re.findall(
+        r"<tool_call>\s*([\s\S]*?)\s*</tool_call>", content, re.IGNORECASE
+    )
     for xml_cand in xml_matches:
         try:
             parsed = json.loads(xml_cand)
@@ -254,19 +303,25 @@ def extract_fallback_tool_calls(
                 matched_tool = resolve_tool_definition(raw_name, available_tools)
                 if matched_tool:
                     fn_meta = matched_tool.get("function", {})
-                    c_name = fn_meta.get("name", raw_name) if isinstance(fn_meta, dict) else raw_name
+                    c_name = (
+                        fn_meta.get("name", raw_name)
+                        if isinstance(fn_meta, dict)
+                        else raw_name
+                    )
                     raw_args = parsed.get("arguments") or parsed.get("args") or {}
                     if isinstance(raw_args, str):
                         try:
                             raw_args = json.loads(raw_args)
                         except Exception:
                             raw_args = {}
-                    found_tool_calls.append({
-                        "name": c_name,
-                        "args": normalize_tool_args(matched_tool, raw_args),
-                        "id": f"call_{uuid.uuid4()}",
-                        "type": "tool_call",
-                    })
+                    found_tool_calls.append(
+                        {
+                            "name": c_name,
+                            "args": normalize_tool_args(matched_tool, raw_args),
+                            "id": f"call_{uuid.uuid4()}",
+                            "type": "tool_call",
+                        }
+                    )
         except Exception:
             ast_res = _extract_python_call_ast(xml_cand, available_tools)
             if ast_res:
@@ -276,31 +331,52 @@ def extract_fallback_tool_calls(
         return found_tool_calls
 
     # Strategy 2: Markdown JSON code blocks ```json ... ``` or standalone JSON objects
-    json_candidates = re.findall(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", content, re.IGNORECASE)
+    json_candidates = re.findall(
+        r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", content, re.IGNORECASE
+    )
     if not json_candidates:
-        json_candidates = re.findall(r"(\{\s*\"(?:name|tool_name|action|function)\"\s*:\s*\"[^\"]+\"[\s\S]*?\})", content)
+        json_candidates = re.findall(
+            r"(\{\s*\"(?:name|tool_name|action|function)\"\s*:\s*\"[^\"]+\"[\s\S]*?\})",
+            content,
+        )
 
     for candidate in json_candidates:
         try:
             parsed = json.loads(candidate)
             if isinstance(parsed, dict):
-                raw_name = parsed.get("name") or parsed.get("tool_name") or parsed.get("action") or ""
+                raw_name = (
+                    parsed.get("name")
+                    or parsed.get("tool_name")
+                    or parsed.get("action")
+                    or ""
+                )
                 matched_tool = resolve_tool_definition(raw_name, available_tools)
                 if matched_tool:
                     fn_meta = matched_tool.get("function", {})
-                    c_name = fn_meta.get("name", raw_name) if isinstance(fn_meta, dict) else raw_name
-                    raw_args = parsed.get("arguments") or parsed.get("args") or parsed.get("action_input") or {}
+                    c_name = (
+                        fn_meta.get("name", raw_name)
+                        if isinstance(fn_meta, dict)
+                        else raw_name
+                    )
+                    raw_args = (
+                        parsed.get("arguments")
+                        or parsed.get("args")
+                        or parsed.get("action_input")
+                        or {}
+                    )
                     if isinstance(raw_args, str):
                         try:
                             raw_args = json.loads(raw_args)
                         except Exception:
                             raw_args = {}
-                    found_tool_calls.append({
-                        "name": c_name,
-                        "args": normalize_tool_args(matched_tool, raw_args),
-                        "id": f"call_{uuid.uuid4()}",
-                        "type": "tool_call",
-                    })
+                    found_tool_calls.append(
+                        {
+                            "name": c_name,
+                            "args": normalize_tool_args(matched_tool, raw_args),
+                            "id": f"call_{uuid.uuid4()}",
+                            "type": "tool_call",
+                        }
+                    )
         except Exception:
             continue
 
@@ -308,7 +384,9 @@ def extract_fallback_tool_calls(
         return found_tool_calls
 
     # Strategy 3: Python code blocks (```python ... ``` or ''' python ... ''')
-    py_blocks = re.findall(r"(?:```|''')(?:python)?\s*([\s\S]*?)\s*(?:```|''')", content, re.IGNORECASE)
+    py_blocks = re.findall(
+        r"(?:```|''')(?:python)?\s*([\s\S]*?)\s*(?:```|''')", content, re.IGNORECASE
+    )
     for block in py_blocks:
         for line in block.strip().split("\n"):
             line = line.strip()
@@ -343,7 +421,7 @@ class CommandNode(BaseAgentNode):
         session_summarizer: SessionSummarizer,
         vector_store: VectorMemoryStore,
         memory_manager: AsyncMemoryManager,
-        tools: Optional[List[Dict[str, Any]]] = None,
+        tools: list[dict[str, Any]] | None = None,
         system_prompt: str = COMMAND_PROMPT,
         max_dialogue_tokens: int = DEFAULT_MAX_DIALOGUE_TOKENS,
     ) -> None:
@@ -361,7 +439,7 @@ class CommandNode(BaseAgentNode):
         )
         self._tools = tools if tools is not None else []
 
-    async def __call__(self, state: AgentState) -> Dict[str, Any]:
+    async def __call__(self, state: AgentState) -> dict[str, Any]:
         """
         Execute technical command reasoning and bind available tools.
 
@@ -388,8 +466,16 @@ class CommandNode(BaseAgentNode):
             for tc in response.tool_calls:
                 raw_name = tc.get("name", "")
                 matched_tool = resolve_tool_definition(raw_name, self._tools)
-                fn_meta = matched_tool.get("function", {}) if isinstance(matched_tool, dict) else {}
-                canonical_name = fn_meta.get("name", raw_name) if isinstance(fn_meta, dict) else raw_name
+                fn_meta = (
+                    matched_tool.get("function", {})
+                    if isinstance(matched_tool, dict)
+                    else {}
+                )
+                canonical_name = (
+                    fn_meta.get("name", raw_name)
+                    if isinstance(fn_meta, dict)
+                    else raw_name
+                )
                 raw_args = tc.get("args") or {}
                 if isinstance(raw_args, str):
                     try:
@@ -397,12 +483,14 @@ class CommandNode(BaseAgentNode):
                     except Exception:
                         raw_args = {}
                 normalized_args = normalize_tool_args(matched_tool, raw_args)
-                normalized_calls.append({
-                    "name": canonical_name,
-                    "args": normalized_args,
-                    "id": tc.get("id") or f"call_{uuid.uuid4()}",
-                    "type": "tool_call",
-                })
+                normalized_calls.append(
+                    {
+                        "name": canonical_name,
+                        "args": normalized_args,
+                        "id": tc.get("id") or f"call_{uuid.uuid4()}",
+                        "type": "tool_call",
+                    }
+                )
             response = AIMessage(
                 content="",
                 tool_calls=normalized_calls,
@@ -432,6 +520,6 @@ class CommandNode(BaseAgentNode):
 __all__ = [
     "CommandNode",
     "extract_fallback_tool_calls",
-    "resolve_tool_definition",
     "normalize_tool_args",
+    "resolve_tool_definition",
 ]

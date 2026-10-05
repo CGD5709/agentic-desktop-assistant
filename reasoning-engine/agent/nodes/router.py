@@ -1,11 +1,13 @@
 """
 Router node responsible for semantic intent classification and conditional memory retrieval.
 """
-from typing import Any, Dict, Final, List
+
+from typing import Any, Final
+
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
-
 from logger import get_logger
+
 from ..memory.vector_store import VectorMemoryStore
 from ..models import AgentState
 from ..prompts import ROUTER_PROMPT
@@ -55,7 +57,7 @@ class RouterNode:
         self._retrieval_limit = retrieval_limit
         self._score_threshold = score_threshold
 
-    async def __call__(self, state: AgentState) -> Dict[str, Any]:
+    async def __call__(self, state: AgentState) -> dict[str, Any]:
         """
         Execute intent classification and conditional semantic retrieval.
 
@@ -83,7 +85,9 @@ class RouterNode:
         # However, if active dialogue history exists, short inputs (e.g. "sí", "1", "todas")
         # may represent parameters or confirmations for an ongoing command and must be classified with context.
         if not has_history and is_simple_greeting_or_trivial(last_human_text):
-            logger.debug("Standalone trivial greeting detected on initial turn. Routing directly to CHAT.")
+            logger.debug(
+                "Standalone trivial greeting detected on initial turn. Routing directly to CHAT."
+            )
             return {
                 "intent": Intent.CHAT.value,
                 "retrieved_memories": [],
@@ -94,14 +98,14 @@ class RouterNode:
                 f"Historial reciente de la conversación:\n"
                 f"{history_text}\n\n"
                 f"Último mensaje del usuario:\n"
-                f"\"{last_human_text}\"\n\n"
+                f'"{last_human_text}"\n\n'
                 f"Clasifica la intención del último mensaje del usuario en 'CHAT' o 'COMMAND' "
                 f"considerando el contexto del historial previo."
             )
         else:
             user_content = (
                 f"Mensaje del usuario:\n"
-                f"\"{last_human_text}\"\n\n"
+                f'"{last_human_text}"\n\n'
                 f"Clasifica la intención del mensaje en 'CHAT' o 'COMMAND'."
             )
 
@@ -116,11 +120,15 @@ class RouterNode:
             if isinstance(classification.content, str)
             else Intent.CHAT.value
         )
-        intent = Intent.COMMAND.value if Intent.COMMAND.value in decision else Intent.CHAT.value
+        intent = (
+            Intent.COMMAND.value
+            if Intent.COMMAND.value in decision
+            else Intent.CHAT.value
+        )
         logger.info("Classified intent: %s (Raw decision: %s)", intent, decision)
 
         # Conditional semantic retrieval (Level 2)
-        retrieved_memories: List[Dict[str, Any]] = []
+        retrieved_memories: list[dict[str, Any]] = []
         if not is_simple_greeting_or_trivial(last_human_text):
             raw_memories = await self._vector_store.search_memories(
                 query=last_human_text,
@@ -128,7 +136,10 @@ class RouterNode:
                 score_threshold=self._score_threshold,
             )
             retrieved_memories = [m.model_dump(mode="json") for m in raw_memories]
-            logger.debug("Retrieved %d relevant long-term memories for query", len(retrieved_memories))
+            logger.debug(
+                "Retrieved %d relevant long-term memories for query",
+                len(retrieved_memories),
+            )
 
         return {
             "intent": intent,

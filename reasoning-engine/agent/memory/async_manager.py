@@ -1,15 +1,21 @@
-import re
-import json
 import asyncio
-from typing import List, Dict, Any, Optional, Sequence
-from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_ollama import ChatOllama
+import json
+import re
+from collections.abc import Sequence
 
-from .models import MemoryItem, MemoryCategory, MemoryExtractionPlan, MemoryOperationType
-from .vector_store import VectorMemoryStore
-from .profile_store import ProfileStore
-from ..prompts import EXTRACTION_PROMPT
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_ollama import ChatOllama
 from logger import get_logger
+
+from ..prompts import EXTRACTION_PROMPT
+from .models import (
+    MemoryCategory,
+    MemoryExtractionPlan,
+    MemoryItem,
+    MemoryOperationType,
+)
+from .profile_store import ProfileStore
+from .vector_store import VectorMemoryStore
 
 logger = get_logger("reasoning_engine.memory.async_manager")
 
@@ -35,17 +41,32 @@ MIN_NON_TRIVIAL_LENGTH = 10
 MAX_PROFILE_KEY_LENGTH = 30
 
 TRIVIAL_PATTERNS = [
-    re.compile(r"^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|hello|hi)[\s!\.]*$", re.IGNORECASE),
+    re.compile(
+        r"^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|hello|hi)[\s!\.]*$",
+        re.IGNORECASE,
+    ),
     re.compile(r"^(gracias|muchas gracias|thx|thanks|ty)[\s!\.]*$", re.IGNORECASE),
-    re.compile(r"^(ok|vale|de acuerdo|perfecto|entendido|guay|genial|bien|s[ií]|no)[\s!\.]*$", re.IGNORECASE),
+    re.compile(
+        r"^(ok|vale|de acuerdo|perfecto|entendido|guay|genial|bien|s[ií]|no)[\s!\.]*$",
+        re.IGNORECASE,
+    ),
     re.compile(r"^(adi[oó]s|hasta luego|chao|bye|nos vemos)[\s!\.]*$", re.IGNORECASE),
     re.compile(r"^(jaja|jajaja|jeje|xd|lol)[\s!\.]*$", re.IGNORECASE),
 ]
 
 TRANSIENT_ACTION_PATTERNS = [
-    re.compile(r"^el\s+usuario\s+(ha\s+pedido|pidi[oó]|solicit[oó]|mand[oó]|quiere\s+que|orden[oó])\s+", re.IGNORECASE),
-    re.compile(r"^el\s+asistente\s+(ha\s+cerrado|ha\s+abierto|ha\s+ejecutado|ejecut[oó]|cerr[oó]|abri[oó]|mat[oó])\s+", re.IGNORECASE),
-    re.compile(r"^se\s+(ha\s+cerrado|ha\s+abierto|ha\s+ejecutado|cerr[oó]|abri[oó]|mat[oó]|ejecut[oó])\s+el\s+(proceso|comando|archivo|programa)", re.IGNORECASE),
+    re.compile(
+        r"^el\s+usuario\s+(ha\s+pedido|pidi[oó]|solicit[oó]|mand[oó]|quiere\s+que|orden[oó])\s+",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^el\s+asistente\s+(ha\s+cerrado|ha\s+abierto|ha\s+ejecutado|ejecut[oó]|cerr[oó]|abri[oó]|mat[oó])\s+",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^se\s+(ha\s+cerrado|ha\s+abierto|ha\s+ejecutado|cerr[oó]|abri[oó]|mat[oó]|ejecut[oó])\s+el\s+(proceso|comando|archivo|programa)",
+        re.IGNORECASE,
+    ),
 ]
 
 # EXTRACTION_PROMPT is imported from ..prompts and preserved identically.
@@ -58,21 +79,22 @@ def _clean_json_markdown(raw_text: str) -> str:
         cleaned = cleaned[7:]
     elif cleaned.startswith("```"):
         cleaned = cleaned[3:]
-    if cleaned.endswith("```"):
-        cleaned = cleaned[:-3]
+    cleaned = cleaned.removesuffix("```")
     return cleaned.strip()
 
 
-def _derive_preference_key(text: str, max_length: int = MAX_PROFILE_KEY_LENGTH) -> Optional[str]:
+def _derive_preference_key(
+    text: str, max_length: int = MAX_PROFILE_KEY_LENGTH
+) -> str | None:
     """Generates a sanitized slug key suitable for SQLite profile storage from preference text."""
-    key_clean = re.sub(r'[^a-zA-Z0-9_]', '_', text[:max_length]).strip('_').lower()
+    key_clean = re.sub(r"[^a-zA-Z0-9_]", "_", text[:max_length]).strip("_").lower()
     return f"pref_{key_clean}" if key_clean else None
 
 
 class AsyncMemoryManager:
     """
     Level 3 Memory: Asynchronous Background Memory Lifecycle Manager.
-    
+
     Implements a zero-contention background architecture using:
     - Activity-based debounce cooldown timers.
     - Conversational turn batching.
@@ -112,9 +134,9 @@ class AsyncMemoryManager:
         )
         self.debounce_seconds = debounce_seconds
         self.min_importance = min_importance
-        
-        self._pending_turns: List[Dict[str, str]] = []
-        self._debounce_task: Optional[asyncio.Task] = None
+
+        self._pending_turns: list[dict[str, str]] = []
+        self._debounce_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
         self._is_processing = False
 
@@ -130,7 +152,7 @@ class AsyncMemoryManager:
             return
 
         self._pending_turns.append({"role": role, "content": content.strip()})
-        
+
         # Reset cooldown timer on incoming activity
         if self._debounce_task and not self._debounce_task.done():
             self._debounce_task.cancel()
@@ -151,7 +173,7 @@ class AsyncMemoryManager:
         except Exception as e:
             logger.warning("Debounce cooldown error: %s", e)
 
-    def _is_trivial_block(self, turns: Sequence[Dict[str, str]]) -> bool:
+    def _is_trivial_block(self, turns: Sequence[dict[str, str]]) -> bool:
         """
         Zero-cost heuristic pre-filter to detect trivial conversational turns.
         Avoids redundant LLM invocations for routine greetings, acknowledgements, or short replies.
@@ -162,7 +184,11 @@ class AsyncMemoryManager:
         Returns:
             bool: True if the conversation block contains no substantial facts, False otherwise.
         """
-        user_texts = [t["content"].lower().strip() for t in turns if t.get("role") == "user" and t.get("content")]
+        user_texts = [
+            t["content"].lower().strip()
+            for t in turns
+            if t.get("role") == "user" and t.get("content")
+        ]
         if not user_texts:
             return True
 
@@ -193,10 +219,14 @@ class AsyncMemoryManager:
         self._is_processing = True
         try:
             formatted_dialogue = [
-                f"{'Usuario' if t['role'] == 'user' else 'Asistente'}: {t['content']}" 
+                f"{'Usuario' if t['role'] == 'user' else 'Asistente'}: {t['content']}"
                 for t in turns_to_process
             ]
-            user_messages = [t["content"] for t in turns_to_process if t.get("role") == "user" and t.get("content")]
+            user_messages = [
+                t["content"]
+                for t in turns_to_process
+                if t.get("role") == "user" and t.get("content")
+            ]
 
             dialogue_text = "\n".join(formatted_dialogue)
             user_query = " ".join(user_messages)
@@ -205,22 +235,28 @@ class AsyncMemoryManager:
             existing_memories = await self.vector_store.search_memories(
                 query=user_query or dialogue_text,
                 limit=CANDIDATE_SEARCH_LIMIT,
-                score_threshold=CANDIDATE_SCORE_THRESHOLD
+                score_threshold=CANDIDATE_SCORE_THRESHOLD,
             )
 
             # Step 3: Format existing memories with unique IDs for LLM referencing
             if existing_memories:
-                memories_context_lines = ["Recuerdos existentes relacionados en memoria:"]
+                memories_context_lines = [
+                    "Recuerdos existentes relacionados en memoria:"
+                ]
                 for m in existing_memories:
                     proj_info = f" [Proyecto: {m.project}]" if m.project else ""
-                    memories_context_lines.append(f"- [ID: {m.id}] ({m.category.value}){proj_info} {m.text}")
+                    memories_context_lines.append(
+                        f"- [ID: {m.id}] ({m.category.value}){proj_info} {m.text}"
+                    )
                 memories_context = "\n".join(memories_context_lines)
             else:
                 memories_context = "Recuerdos existentes relacionados en memoria:\n(Ninguno encontrado)"
 
             messages = [
                 SystemMessage(content=EXTRACTION_PROMPT),
-                HumanMessage(content=f"{memories_context}\n\nBloque de conversación a analizar:\n{dialogue_text}")
+                HumanMessage(
+                    content=f"{memories_context}\n\nBloque de conversación a analizar:\n{dialogue_text}"
+                ),
             ]
 
             logger.info("Analyzing conversation batch with memory context...")
@@ -230,7 +266,7 @@ class AsyncMemoryManager:
             await self._apply_memory_operations(raw_content)
 
         except Exception as e:
-            logger.error("Error processing memory extraction: %s", e, exc_info=True)
+            logger.exception("Error processing memory extraction: %s", e)
         finally:
             self._is_processing = False
 
@@ -246,9 +282,17 @@ class AsyncMemoryManager:
         try:
             data = json.loads(cleaned)
             # Normalize operation keys to uppercase defensively before validation
-            if isinstance(data, dict) and "operations" in data and isinstance(data["operations"], list):
+            if (
+                isinstance(data, dict)
+                and "operations" in data
+                and isinstance(data["operations"], list)
+            ):
                 for item in data["operations"]:
-                    if isinstance(item, dict) and "op" in item and isinstance(item["op"], str):
+                    if (
+                        isinstance(item, dict)
+                        and "op" in item
+                        and isinstance(item["op"], str)
+                    ):
                         item["op"] = item["op"].upper()
             plan = MemoryExtractionPlan.model_validate(data)
             operations = plan.operations
@@ -271,26 +315,31 @@ class AsyncMemoryManager:
                 continue
 
             # Filter out memories below the minimum importance score threshold
-            if op in (MemoryOperationType.CREATE, MemoryOperationType.UPDATE) and importance < self.min_importance:
+            if (
+                op in (MemoryOperationType.CREATE, MemoryOperationType.UPDATE)
+                and importance < self.min_importance
+            ):
                 logger.info(
                     "Skipping memory candidate below importance threshold (%d < %d): %s",
                     importance,
                     self.min_importance,
-                    text
+                    text,
                 )
                 continue
 
             # Safety guard: Discard transient operational command and action logging
-            if op in (MemoryOperationType.CREATE, MemoryOperationType.UPDATE) and any(pat.search(text) for pat in TRANSIENT_ACTION_PATTERNS):
-                logger.warning("Discarding transient action log memory candidate: %s", text)
+            if op in (MemoryOperationType.CREATE, MemoryOperationType.UPDATE) and any(
+                pat.search(text) for pat in TRANSIENT_ACTION_PATTERNS
+            ):
+                logger.warning(
+                    "Discarding transient action log memory candidate: %s", text
+                )
                 continue
 
             if op == MemoryOperationType.CREATE:
                 # Deduplication check against vector store
                 existing = await self.vector_store.search_memories(
-                    query=text,
-                    limit=1,
-                    score_threshold=DEDUPLICATION_SCORE_THRESHOLD
+                    query=text, limit=1, score_threshold=DEDUPLICATION_SCORE_THRESHOLD
                 )
 
                 if existing:
@@ -299,21 +348,23 @@ class AsyncMemoryManager:
                         memory_id=target_id,
                         new_text=text,
                         category=category,
-                        importance=importance
+                        importance=importance,
                     )
                 else:
                     item = MemoryItem(
                         text=text,
                         category=category,
                         importance=importance,
-                        project=project
+                        project=project,
                     )
                     await self.vector_store.add_memory(item)
 
                 if category == MemoryCategory.PREFERENCE:
                     pref_key = _derive_preference_key(text)
                     if pref_key:
-                        await self.profile_store.set(pref_key, text, category="preferences")
+                        await self.profile_store.set(
+                            pref_key, text, category="preferences"
+                        )
 
             elif op == MemoryOperationType.UPDATE:
                 if mem_id:
@@ -321,35 +372,37 @@ class AsyncMemoryManager:
                         memory_id=mem_id,
                         new_text=text,
                         category=category,
-                        importance=importance
+                        importance=importance,
                     )
                 else:
                     # Fallback if LLM omitted memory_id: search for semantic match
                     existing = await self.vector_store.search_memories(
                         query=text,
                         limit=1,
-                        score_threshold=FALLBACK_UPDATE_SCORE_THRESHOLD
+                        score_threshold=FALLBACK_UPDATE_SCORE_THRESHOLD,
                     )
                     if existing:
                         await self.vector_store.update_memory(
                             memory_id=existing[0].id,
                             new_text=text,
                             category=category,
-                            importance=importance
+                            importance=importance,
                         )
                     else:
                         item = MemoryItem(
                             text=text,
                             category=category,
                             importance=importance,
-                            project=project
+                            project=project,
                         )
                         await self.vector_store.add_memory(item)
 
                 if category == MemoryCategory.PREFERENCE:
                     pref_key = _derive_preference_key(text)
                     if pref_key:
-                        await self.profile_store.set(pref_key, text, category="preferences")
+                        await self.profile_store.set(
+                            pref_key, text, category="preferences"
+                        )
 
             elif op == MemoryOperationType.DELETE:
                 if mem_id:
@@ -358,7 +411,7 @@ class AsyncMemoryManager:
                     existing = await self.vector_store.search_memories(
                         query=text,
                         limit=1,
-                        score_threshold=FALLBACK_DELETE_SCORE_THRESHOLD
+                        score_threshold=FALLBACK_DELETE_SCORE_THRESHOLD,
                     )
                     if existing:
                         await self.vector_store.delete_memory(existing[0].id)
@@ -369,7 +422,7 @@ class AsyncMemoryManager:
         """
         if self._debounce_task and not self._debounce_task.done():
             self._debounce_task.cancel()
-        
+
         if self._pending_turns:
             logger.info("Flushing pending memories before shutdown...")
             await self._process_pending_buffer()

@@ -19,7 +19,7 @@ export interface RecognitionCallbacks {
 class SpeechRecognitionService {
   private recognition: any = null;
   private isListening: boolean = false;
-  private currentLanguage: string = 'es-ES';
+  private currentLanguage: string = "es-ES";
   private callbacks: RecognitionCallbacks = {};
 
   constructor() {
@@ -28,7 +28,8 @@ class SpeechRecognitionService {
 
   private initRecognition(): void {
     const win = window as unknown as IWindowSpeechRecognition;
-    const SpeechRecognitionClass = win.SpeechRecognition || win.webkitSpeechRecognition;
+    const SpeechRecognitionClass =
+      win.SpeechRecognition || win.webkitSpeechRecognition;
 
     if (!SpeechRecognitionClass) {
       return;
@@ -42,8 +43,8 @@ class SpeechRecognitionService {
       this.recognition.maxAlternatives = 1;
 
       this.recognition.onresult = (event: any) => {
-        let interimText = '';
-        let finalText = '';
+        let interimText = "";
+        let finalText = "";
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const transcript = event.results[i][0].transcript;
@@ -65,8 +66,8 @@ class SpeechRecognitionService {
 
       this.recognition.onerror = (event: any) => {
         // 'no-speech' or 'aborted' are non-critical during user interaction
-        if (event.error !== 'no-speech' && event.error !== 'aborted') {
-          console.warn('[SpeechRecognition] Error encountered:', event.error);
+        if (event.error !== "no-speech" && event.error !== "aborted") {
+          console.warn("[SpeechRecognition] Error encountered:", event.error);
           this.callbacks.onError?.(event.error);
         }
       };
@@ -76,7 +77,7 @@ class SpeechRecognitionService {
         this.callbacks.onEnd?.();
       };
     } catch (err) {
-      console.warn('[SpeechRecognition] Initialization failed:', err);
+      console.warn("[SpeechRecognition] Initialization failed:", err);
       this.recognition = null;
     }
   }
@@ -114,7 +115,7 @@ class SpeechRecognitionService {
       this.isListening = true;
       return true;
     } catch (err) {
-      console.warn('[SpeechRecognition] Failed to start:', err);
+      console.warn("[SpeechRecognition] Failed to start:", err);
       this.isListening = false;
       return false;
     }
